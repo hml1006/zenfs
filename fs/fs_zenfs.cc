@@ -3,7 +3,7 @@
 //  This source code is licensed under both the GPLv2 (found in the
 //  COPYING file in the root directory) and Apache 2.0 License
 //  (found in the LICENSE.Apache file in the root directory).
-
+#define OS_LINUX 1
 #if !defined(ROCKSDB_LITE) && defined(OS_LINUX)
 
 #include "fs_zenfs.h"
@@ -146,6 +146,7 @@ IOStatus ZenMetaLog::AddRecord(const Slice& slice) {
 
   memset(buffer, 0, phys_sz);
 
+  // 计算crc
   crc = crc32c::Extend(crc, (const char*)&record_sz, sizeof(uint32_t));
   crc = crc32c::Extend(crc, data, record_sz);
   crc = crc32c::Mask(crc);
@@ -167,6 +168,7 @@ IOStatus ZenMetaLog::Read(Slice* slice) {
   size_t to_read = slice->size();
   int ret;
 
+  // 读取position和wp校验
   if (read_pos_ >= zone_->wp_) {
     // EOF
     slice->clear();
@@ -177,6 +179,7 @@ IOStatus ZenMetaLog::Read(Slice* slice) {
     return IOStatus::IOError("Read across zone");
   }
 
+  // 循环读取直到读取完指定长度数据
   while (read < to_read) {
     ret = pread(f, (void*)(data + read), to_read - read, read_pos_);
 
@@ -203,6 +206,7 @@ IOStatus ZenMetaLog::ReadRecord(Slice* record, std::string* scratch) {
   scratch->append(zMetaHeaderSize, 0);
   header = Slice(scratch->c_str(), zMetaHeaderSize);
 
+  // 读取crc+length
   s = Read(&header);
   if (!s.ok()) return s;
 
@@ -219,9 +223,11 @@ IOStatus ZenMetaLog::ReadRecord(Slice* record, std::string* scratch) {
   scratch->append(record_sz, 0);
 
   *record = Slice(scratch->c_str(), record_sz);
+  // 读取record到slice
   s = Read(record);
   if (!s.ok()) return s;
 
+  // crc校验
   actual_crc = crc32c::Value((const char*)&record_sz, sizeof(uint32_t));
   actual_crc = crc32c::Extend(actual_crc, record->data(), record->size());
 
@@ -1320,7 +1326,9 @@ Status ZenFS::Mount(bool readonly) {
     std::unique_ptr<Superblock> super_block;
 
     super_block.reset(new Superblock());
+    // 解析super block
     s = super_block->DecodeFrom(&super_record);
+    // 兼容性检查
     if (s.ok()) s = super_block->CompatibleWith(zbd_);
     if (!s.ok()) return s;
 

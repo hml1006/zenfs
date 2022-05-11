@@ -5,7 +5,7 @@
 //  (found in the LICENSE.Apache file in the root directory).
 
 #pragma once
-
+#define OS_LINUX 1
 #if !defined(ROCKSDB_LITE) && defined(OS_LINUX)
 
 #include <errno.h>

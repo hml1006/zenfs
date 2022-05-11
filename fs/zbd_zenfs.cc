@@ -222,10 +222,12 @@ IOStatus ZonedBlockDevice::CheckScheduler() {
   return IOStatus::OK();
 }
 
+// mount/mkfs之前先open
 IOStatus ZonedBlockDevice::Open(bool readonly, bool exclusive) {
   struct zbd_zone *zone_rep;
   unsigned int reported_zones;
   uint64_t addr_space_sz;
+  // zns盘信息
   zbd_info info;
   Status s;
   uint64_t i = 0;
@@ -276,6 +278,7 @@ IOStatus ZonedBlockDevice::Open(bool readonly, bool exclusive) {
         "To few zones on zoned block device (32 required)");
   }
 
+  // 检查mq-deadline调度器是否使用
   IOStatus ios = CheckScheduler();
   if (ios != IOStatus::OK()) return ios;
 
@@ -298,6 +301,7 @@ IOStatus ZonedBlockDevice::Open(bool readonly, bool exclusive) {
 
   addr_space_sz = (uint64_t)nr_zones_ * zone_sz_;
 
+  // 列出全部zone
   ret = zbd_list_zones(read_f_, 0, addr_space_sz, ZBD_RO_ALL, &zone_rep,
                        &reported_zones);
 
@@ -306,11 +310,12 @@ IOStatus ZonedBlockDevice::Open(bool readonly, bool exclusive) {
     return IOStatus::IOError("Failed to list zones");
   }
 
+  // 把meta zone加入列表
   while (m < ZENFS_META_ZONES && i < reported_zones) {
     struct zbd_zone *z = &zone_rep[i++];
     /* Only use sequential write required zones */
-    if (zbd_zone_type(z) == ZBD_ZONE_TYPE_SWR) {
       if (!zbd_zone_offline(z)) {
+    if (zbd_zone_type(z) == ZBD_ZONE_TYPE_SWR) {
         meta_zones.push_back(new Zone(this, z));
       }
       m++;
@@ -320,6 +325,7 @@ IOStatus ZonedBlockDevice::Open(bool readonly, bool exclusive) {
   active_io_zones_ = 0;
   open_io_zones_ = 0;
 
+  // 把io zone加入列表
   for (; i < reported_zones; i++) {
     struct zbd_zone *z = &zone_rep[i];
     /* Only use sequential write required zones */

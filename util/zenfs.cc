@@ -157,10 +157,12 @@ int zenfs_tool_mkfs() {
 
   if (create_aux_dir(FLAGS_aux_path.c_str())) return 1;
 
+  // 打开zns设备
   std::unique_ptr<ZonedBlockDevice> zbd = zbd_open(false, true);
   if (!zbd) return 1;
 
   std::unique_ptr<ZenFS> zenFS;
+  // 挂载
   s = zenfs_mount(zbd, &zenFS, false);
   if ((s.ok() || !s.IsNotFound()) && !FLAGS_force) {
     fprintf(
@@ -177,6 +179,7 @@ int zenfs_tool_mkfs() {
 
   if (FLAGS_aux_path.back() != '/') FLAGS_aux_path.append("/");
 
+  // 格式化
   s = zenFS->MkFS(FLAGS_aux_path, FLAGS_finish_threshold);
   if (!s.ok()) {
     fprintf(stderr, "Failed to create file system, error: %s\n",
