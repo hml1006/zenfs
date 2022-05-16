@@ -18,7 +18,9 @@
 #include <sstream>
 #include <utility>
 #include <vector>
+#include <thread>
 
+#include "stat.hpp"
 #include "metrics_sample.h"
 #include "rocksdb/utilities/object_registry.h"
 #include "snapshot.h"
@@ -26,7 +28,12 @@
 #include "util/crc32c.h"
 
 #define DEFAULT_ZENV_LOG_PATH "/tmp/"
-
+namespace shannon {
+std::string Statistic::log_ = std::string();
+int Statistic::current_stat_fd = -1;
+time_t Statistic::current_display_time_ = 0;
+std::vector<std::shared_ptr<StatItem>> Statistic::stats_ = std::vector<std::shared_ptr<StatItem>>();
+}
 namespace ROCKSDB_NAMESPACE {
 
 Status Superblock::DecodeFrom(Slice* input) {
@@ -156,13 +163,15 @@ IOStatus ZenMetaLog::AddRecord(const Slice& slice) {
   return s;
 }
 
+
+extern int pread_stat_fd;
 IOStatus ZenMetaLog::Read(Slice* slice) {
   int f = zbd_->GetReadFD();
   const char* data = slice->data();
   size_t read = 0;
   size_t to_read = slice->size();
   int ret;
-
+ 
   if (read_pos_ >= zone_->wp_) {
     // EOF
     slice->clear();
@@ -173,6 +182,7 @@ IOStatus ZenMetaLog::Read(Slice* slice) {
     return IOStatus::IOError("Read across zone");
   }
 
+  shannon::MeasurePoint m(pread_stat_fd);
   while (read < to_read) {
     ret = pread(f, (void*)(data + read), to_read - read, read_pos_);
 
@@ -889,6 +899,32 @@ Status ZenFS::RecoverFrom(ZenMetaLog* log) {
     return Status::OK();
   else
     return Status::NotFound("ZenFS", "No snapshot found");
+}
+
+int pread_stat_fd = -1;
+int pwrite_stat_fd = -1;
+int zone_random_read_stat_fd = -1;
+int zone_random_write_stat_fd = -1;
+int zone_seq_read_stat_fd = -1;
+int zone_seq_write_stat_fd = -1;
+int zone_read_stat_fd = -1;
+int zone_append_stat_fd = -1;
+int zone_position_read_stat_fd = -1;
+
+void StatInit() {
+  shannon::Statistic::InitWithLog("/tmp/stat.log");
+  pread_stat_fd = shannon::Statistic::AllocStat("pread");
+  pwrite_stat_fd = shannon::Statistic::AllocStat("pwrite");
+  zone_read_stat_fd = shannon::Statistic::AllocStat("ZoneRead");
+  zone_position_read_stat_fd = shannon::Statistic::AllocStat("ZonePositionRead");
+  zone_append_stat_fd = shannon::Statistic::AllocStat("ZoneAppend");
+
+  std::thread t(shannon::Statistic::LoopStat);
+  t.detach();
+//  zone_random_read_stat_fd = Statistic::AllocStat("RandomRead");
+//  zone_random_write_stat_fd = Statistic::AllocStat("RandomWrite");
+//  zone_seq_read_stat_fd = Statistic::AllocStat("SeqRead");
+//  zone_seq_write_stat_fd = Statistic::AllocStat("SeqWrite");
 }
 
 #define ZENV_URI_PATTERN "zenfs://"

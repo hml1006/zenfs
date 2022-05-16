@@ -27,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "stat.hpp"
 #include "rocksdb/env.h"
 #include "rocksdb/io_status.h"
 #include "snapshot.h"
@@ -145,6 +146,8 @@ IOStatus Zone::Close() {
   return IOStatus::OK();
 }
 
+
+extern int pwrite_stat_fd;
 IOStatus Zone::Append(char *data, uint32_t size) {
   char *ptr = data;
   uint32_t left = size;
@@ -156,6 +159,7 @@ IOStatus Zone::Append(char *data, uint32_t size) {
 
   assert((size % zbd_->GetBlockSize()) == 0);
 
+  shannon::MeasurePoint m(pwrite_stat_fd);
   while (left) {
     ret = pwrite(fd, ptr, size, wp_);
     if (ret < 0) return IOStatus::IOError("Write failed");

@@ -23,6 +23,7 @@
 #include <utility>
 #include <vector>
 
+#include "stat.hpp"
 #include "rocksdb/env.h"
 #include "util/coding.h"
 
@@ -264,6 +265,7 @@ ZoneExtent* ZoneFile::GetExtent(uint64_t file_offset, uint64_t* dev_offset) {
   return NULL;
 }
 
+extern int pread_stat_fd;
 IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
                                   char* scratch, bool direct) {
   ZenFSMetricsLatencyGuard guard(zbd_->GetMetrics(), ZENFS_READ_LATENCY,
@@ -303,6 +305,7 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
 
   ptr = scratch;
 
+  shannon::MeasurePoint m(pread_stat_fd);
   while (read != r_sz) {
     size_t pread_sz = r_sz - read;
 
