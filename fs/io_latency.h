@@ -20,7 +20,6 @@
 enum LatencyTargetIndex {
 	TargetStart = 0,
 
-	ZoneAppendId,
 	ZoneFileAppendId,
 	SparseAppendId,
 	BufferedAppendId,

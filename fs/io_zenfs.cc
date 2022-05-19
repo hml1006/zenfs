@@ -489,9 +489,7 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
     if (pad_sz) memset(buffer + wr_size, 0x0, pad_sz);
 
     uint64_t extent_length = wr_size;
-    DEBUG_STEP_LATENCY_START(ZoneAppendId);
     s = active_zone_->Append(buffer, wr_size + pad_sz);
-    DEBUG_STEP_LATENCY_END(ZoneAppendId);
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -548,9 +546,7 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
 
     uint64_t extent_length = wr_size - ZoneFile::SPARSE_HEADER_SIZE;
     EncodeFixed64(sparse_buffer, extent_length);
-    DEBUG_STEP_LATENCY_START(ZoneAppendId);
     s = active_zone_->Append(sparse_buffer, wr_size + pad_sz);
-    DEBUG_STEP_LATENCY_END(ZoneAppendId);
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -607,9 +603,7 @@ IOStatus ZoneFile::Append(void* data, int data_size) {
     wr_size = left;
     if (wr_size > active_zone_->capacity_) wr_size = active_zone_->capacity_;
 
-    DEBUG_STEP_LATENCY_START(ZoneAppendId);
     s = active_zone_->Append((char*)data + offset, wr_size);
-    DEBUG_STEP_LATENCY_END(ZoneAppendId);
     if (!s.ok()) return s;
 
     file_size_ += wr_size;
