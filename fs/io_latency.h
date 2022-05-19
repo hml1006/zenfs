@@ -23,10 +23,12 @@ enum LatencyTargetIndex {
 	AllocNewZoneId,
 	CloseActiveZoneId,
 	PushExtentId,
+	GetExtent1Id,
+	GetExtent2Id,
 	ZoneAppendId,
 	ZoneFileAppendId,
 	SparseAppendId,
-	BufferAppendId,
+	BufferedAppendId,
 	preadId,
 	pwriteId,
 	PositionedReadId,
@@ -52,7 +54,7 @@ extern void ZenfsLatencyInit();
 		struct timeval targetId##end; \
 		gettimeofday(&targetId##end, NULL); \
 		TotalReqs[targetId]++; \
-		int us = (targetId##end.tv_sec - targetId##start.tv_sec) * US_PER_SECOND + targetId##end.tv_usec - targetId##start.tv_usec; \
+		uint64_t us = (targetId##end.tv_sec - targetId##start.tv_sec) * US_PER_SECOND + targetId##end.tv_usec - targetId##start.tv_usec; \
 		if (likely(us > 0)) { \
 			TotalLatency[targetId] += us; \
 			if (us > MaxLatency[targetId]) { \

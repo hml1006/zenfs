@@ -7,6 +7,7 @@
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include "io_zenfs.h"
+#include "io_latency.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -322,6 +323,7 @@ ZoneExtent* ZoneFile::GetExtent(uint64_t file_offset, uint64_t* dev_offset) {
 
 IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
                                   char* scratch, bool direct) {
+  DEBUG_STEP_LATENCY_START(PositionedReadId);
   ZenFSMetricsLatencyGuard guard(zbd_->GetMetrics(), ZENFS_READ_LATENCY,
                                  Env::Default());
   zbd_->GetMetrics()->ReportQPS(ZENFS_READ_QPS, 1);
@@ -345,7 +347,9 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
   }
 
   r_off = 0;
+  DEBUG_STEP_LATENCY_START(GetExtent1Id);
   extent = GetExtent(offset, &r_off);
+  DEBUG_STEP_LATENCY_END(GetExtent1Id);
   if (!extent) {
     /* read start beyond end of (synced) file data*/
     *result = Slice(scratch, 0);
@@ -377,13 +381,13 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
       pread_sz += bytes_to_align;
       aligned = true;
     }
-
+    DEBUG_STEP_LATENCY_START(preadId);
     if (direct && aligned) {
       r = pread(f_direct, ptr, pread_sz, r_off);
     } else {
       r = pread(f, ptr, pread_sz, r_off);
     }
-
+    DEBUG_STEP_LATENCY_END(preadId);
     if (r <= 0) {
       if (r == -1 && errno == EINTR) {
         continue;
@@ -404,7 +408,9 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
     r_off += pread_sz;
 
     if (read != r_sz && r_off == extent_end) {
+      DEBUG_STEP_LATENCY_START(GetExtent2Id);
       extent = GetExtent(offset + read, &r_off);
+      DEBUG_STEP_LATENCY_END(GetExtent2Id);
       if (!extent) {
         /* read beyond end of (synced) file data */
         break;
@@ -420,6 +426,7 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
   }
 
   *result = Slice((char*)scratch, read);
+  DEBUG_STEP_LATENCY_END(PositionedReadId);
   return s;
 }
 
@@ -460,13 +467,16 @@ IOStatus ZoneFile::AllocateNewZone() {
 
 /* Byte-aligned writes without a sparse header */
 IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
+  DEBUG_STEP_LATENCY_START(BufferedAppendId);
   uint32_t left = data_size;
   uint32_t wr_size;
   uint32_t block_sz = GetBlockSize();
   IOStatus s;
 
   if (active_zone_ == NULL) {
+	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
     s = AllocateNewZone();
+    DEBUG_STEP_LATENCY_END(AllocNewZoneId);
     if (!s.ok()) return s;
   }
 
@@ -484,8 +494,9 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
     if (pad_sz) memset(buffer + wr_size, 0x0, pad_sz);
 
     uint64_t extent_length = wr_size;
-
+    DEBUG_STEP_LATENCY_START(ZoneAppendId);
     s = active_zone_->Append(buffer, wr_size + pad_sz);
+    DEBUG_STEP_LATENCY_END(ZoneAppendId);
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -497,31 +508,38 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
     left -= extent_length;
 
     if (active_zone_->capacity_ == 0) {
+      DEBUG_STEP_LATENCY_START(CloseActiveZoneId);
       s = CloseActiveZone();
+      DEBUG_STEP_LATENCY_END(CloseActiveZoneId);
       if (!s.ok()) {
         return s;
       }
       if (left) {
         memcpy((void*)(buffer), (void*)(buffer + wr_size), left);
       }
+      DEBUG_STEP_LATENCY_START(AllocNewZoneId);
       s = AllocateNewZone();
+      DEBUG_STEP_LATENCY_END(AllocNewZoneId);
       if (!s.ok()) return s;
     }
   }
-
+  DEBUG_STEP_LATENCY_END(BufferedAppendId);
   return IOStatus::OK();
 }
 
 /* Byte-aligned, sparse writes with inline metadata
    the caller reserves 8 bytes of data for a size header */
 IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
+  DEBUG_STEP_LATENCY_START(SparseAppendId);
   uint32_t left = data_size;
   uint32_t wr_size;
   uint32_t block_sz = GetBlockSize();
   IOStatus s;
 
   if (active_zone_ == NULL) {
+	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
     s = AllocateNewZone();
+    DEBUG_STEP_LATENCY_END(AllocNewZoneId);
     if (!s.ok()) return s;
   }
 
@@ -541,8 +559,9 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
 
     uint64_t extent_length = wr_size - ZoneFile::SPARSE_HEADER_SIZE;
     EncodeFixed64(sparse_buffer, extent_length);
-
+    DEBUG_STEP_LATENCY_START(ZoneAppendId);
     s = active_zone_->Append(sparse_buffer, wr_size + pad_sz);
+    DEBUG_STEP_LATENCY_END(ZoneAppendId);
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -555,7 +574,9 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
     left -= extent_length;
 
     if (active_zone_->capacity_ == 0) {
+      DEBUG_STEP_LATENCY_START(CloseActiveZoneId);
       s = CloseActiveZone();
+      DEBUG_STEP_LATENCY_END(CloseActiveZoneId);
       if (!s.ok()) {
         return s;
       }
@@ -563,49 +584,62 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
         memcpy((void*)(sparse_buffer + ZoneFile::SPARSE_HEADER_SIZE),
                (void*)(sparse_buffer + wr_size), left);
       }
+      DEBUG_STEP_LATENCY_START(AllocNewZoneId);
       s = AllocateNewZone();
+      DEBUG_STEP_LATENCY_END(AllocNewZoneId);
       if (!s.ok()) return s;
     }
   }
-
+  DEBUG_STEP_LATENCY_END(SparseAppendId);
   return IOStatus::OK();
 }
 
 /* Assumes that data and size are block aligned */
 IOStatus ZoneFile::Append(void* data, int data_size) {
+  DEBUG_STEP_LATENCY_START(ZoneFileAppendId);
   uint32_t left = data_size;
   uint32_t wr_size, offset = 0;
   IOStatus s = IOStatus::OK();
 
   if (!active_zone_) {
-    s = AllocateNewZone();
+	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
+	s = AllocateNewZone();
+	DEBUG_STEP_LATENCY_END(AllocNewZoneId);
     if (!s.ok()) return s;
   }
 
   while (left) {
     if (active_zone_->capacity_ == 0) {
+      DEBUG_STEP_LATENCY_START(PushExtentId);
       PushExtent();
+      DEBUG_STEP_LATENCY_END(PushExtentId);
 
+      DEBUG_STEP_LATENCY_START(CloseActiveZoneId);
       s = CloseActiveZone();
+      DEBUG_STEP_LATENCY_END(CloseActiveZoneId);
       if (!s.ok()) {
         return s;
       }
 
-      s = AllocateNewZone();
+  	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
+  	s = AllocateNewZone();
+  	DEBUG_STEP_LATENCY_END(AllocNewZoneId);
       if (!s.ok()) return s;
     }
 
     wr_size = left;
     if (wr_size > active_zone_->capacity_) wr_size = active_zone_->capacity_;
 
+    DEBUG_STEP_LATENCY_START(ZoneAppendId);
     s = active_zone_->Append((char*)data + offset, wr_size);
+    DEBUG_STEP_LATENCY_END(ZoneAppendId);
     if (!s.ok()) return s;
 
     file_size_ += wr_size;
     left -= wr_size;
     offset += wr_size;
   }
-
+  DEBUG_STEP_LATENCY_END(ZoneFileAppendId);
   return IOStatus::OK();
 }
 

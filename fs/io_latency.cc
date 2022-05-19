@@ -35,14 +35,18 @@ const char* ZenfsGetLatencyTargetName(enum LatencyTargetIndex id)
 		return "CloseActiveZone";
 	case PushExtentId:
 		return "PushExtent";
+	case GetExtent1Id:
+		return "GetExtent1";
+	case GetExtent2Id:
+		return "GetExtent2";
 	case ZoneAppendId:
 		return "ZoneAppend";
 	case ZoneFileAppendId:
 		return "ZoneFileAppend";
 	case SparseAppendId:
 		return "SparseAppend";
-	case BufferAppendId:
-		return "BufferAppend";
+	case BufferedAppendId:
+		return "BufferedAppend";
 	case preadId:
 		return "pread";
 	case pwriteId:
@@ -56,6 +60,9 @@ const char* ZenfsGetLatencyTargetName(enum LatencyTargetIndex id)
 
 static int ZenfsSetLatencyLog(const char *file)
 {
+	if (latency_log_file)
+		return -1;
+
 	latency_log_file = fopen(file, "a+");
 	if (!latency_log_file) {
 		return -1;
@@ -63,6 +70,8 @@ static int ZenfsSetLatencyLog(const char *file)
 
 	return 0;
 }
+
+static int second = 0;
 
 static void ZenfsShowLatency()
 {
@@ -79,7 +88,7 @@ static void ZenfsShowLatency()
 		PreSecondTotalLatency[i] = total_latency;
 
 		if (latency_log_file) {
-			fprintf(latency_log_file, "latency[%s](us) => max: %lu, avg: %lu, count: %lu\n",
+			fprintf(latency_log_file, "time: %d, latency[%s](us) => max: %lu, avg: %lu, count: %lu\n", second,
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs);
 		}
 	}
@@ -89,6 +98,7 @@ void LoopShowLatency()
 	for(;;) {
 		sleep(1);
 		ZenfsShowLatency();
+		second++;
 	}
 }
 
