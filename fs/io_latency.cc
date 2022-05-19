@@ -51,7 +51,7 @@ static int ZenfsSetLatencyLog(const char *file)
 	if (latency_log_file)
 		return -1;
 
-	latency_log_file = fopen(file, "a+");
+	latency_log_file = fopen(file, "w+");
 	if (!latency_log_file) {
 		return -1;
 	}
