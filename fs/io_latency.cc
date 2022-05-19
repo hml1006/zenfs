@@ -146,10 +146,10 @@ static void ZenfsShowLatency()
 		uint64_t greater_than_100ms = LatencyStat100Ms[i].fetch_and(0);
 		if (latency_log_file && (reqs != 0)) {
 			fprintf(latency_log_file, "===================================time %d==================================\n", second);
-			fprintf(latency_log_file, "latency[%s\t\t\t\t\t](us) \t\t=> max: \t%lu, avg: \t%lu, count: \t%lu, total: \t%lu\n",
+			fprintf(latency_log_file, "latency[%s](us) => max: %lu, avg: %lu, count: %lu, total: %lu\n",
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 			fprintf(latency_log_file, "**************************************************************************\n");
-			fprintf(latency_log_file, "latency\t\tcount\t");
+			fprintf(latency_log_file, "latency\t\tcount\n");
 			for (int j = 0; j < LATENCY_STAT_LEN; j++) {
 				if (0 != LatencyStatUsTmp[i][j]) {
 					fprintf(latency_log_file, "%d-%d us\t\t%lu\n", j * US_LATENCY_STEP, (j + 1) * US_LATENCY_STEP, LatencyStatUsTmp[i][j]);
@@ -160,7 +160,7 @@ static void ZenfsShowLatency()
 					fprintf(latency_log_file, "%d ms\t\t%lu\n", j + 1, LatencyStatMsTmp[i][j]);
 				}
 			}
-			fprintf(latency_log_file, ">100 ms\t\t%lu\n", greater_than_100ms);
+			fprintf(latency_log_file, ">100 ms\t\t\t%lu\n", greater_than_100ms);
 		}
 	}
 }
