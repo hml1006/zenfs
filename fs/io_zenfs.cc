@@ -474,9 +474,7 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
   IOStatus s;
 
   if (active_zone_ == NULL) {
-	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
     s = AllocateNewZone();
-    DEBUG_STEP_LATENCY_END(AllocNewZoneId);
     if (!s.ok()) return s;
   }
 
@@ -508,18 +506,14 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
     left -= extent_length;
 
     if (active_zone_->capacity_ == 0) {
-      DEBUG_STEP_LATENCY_START(CloseActiveZoneId);
       s = CloseActiveZone();
-      DEBUG_STEP_LATENCY_END(CloseActiveZoneId);
       if (!s.ok()) {
         return s;
       }
       if (left) {
         memcpy((void*)(buffer), (void*)(buffer + wr_size), left);
       }
-      DEBUG_STEP_LATENCY_START(AllocNewZoneId);
       s = AllocateNewZone();
-      DEBUG_STEP_LATENCY_END(AllocNewZoneId);
       if (!s.ok()) return s;
     }
   }
@@ -537,9 +531,7 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
   IOStatus s;
 
   if (active_zone_ == NULL) {
-	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
     s = AllocateNewZone();
-    DEBUG_STEP_LATENCY_END(AllocNewZoneId);
     if (!s.ok()) return s;
   }
 
@@ -574,9 +566,7 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
     left -= extent_length;
 
     if (active_zone_->capacity_ == 0) {
-      DEBUG_STEP_LATENCY_START(CloseActiveZoneId);
       s = CloseActiveZone();
-      DEBUG_STEP_LATENCY_END(CloseActiveZoneId);
       if (!s.ok()) {
         return s;
       }
@@ -584,9 +574,7 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
         memcpy((void*)(sparse_buffer + ZoneFile::SPARSE_HEADER_SIZE),
                (void*)(sparse_buffer + wr_size), left);
       }
-      DEBUG_STEP_LATENCY_START(AllocNewZoneId);
       s = AllocateNewZone();
-      DEBUG_STEP_LATENCY_END(AllocNewZoneId);
       if (!s.ok()) return s;
     }
   }
@@ -602,9 +590,7 @@ IOStatus ZoneFile::Append(void* data, int data_size) {
   IOStatus s = IOStatus::OK();
 
   if (!active_zone_) {
-	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
 	s = AllocateNewZone();
-	DEBUG_STEP_LATENCY_END(AllocNewZoneId);
     if (!s.ok()) return s;
   }
 
@@ -614,16 +600,12 @@ IOStatus ZoneFile::Append(void* data, int data_size) {
       PushExtent();
       DEBUG_STEP_LATENCY_END(PushExtentId);
 
-      DEBUG_STEP_LATENCY_START(CloseActiveZoneId);
       s = CloseActiveZone();
-      DEBUG_STEP_LATENCY_END(CloseActiveZoneId);
       if (!s.ok()) {
         return s;
       }
 
-  	DEBUG_STEP_LATENCY_START(AllocNewZoneId);
   	s = AllocateNewZone();
-  	DEBUG_STEP_LATENCY_END(AllocNewZoneId);
       if (!s.ok()) return s;
     }
 

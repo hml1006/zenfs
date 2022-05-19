@@ -29,10 +29,6 @@ std::atomic_flag has_inited(false);
 const char* ZenfsGetLatencyTargetName(enum LatencyTargetIndex id)
 {
 	switch (id) {
-	case AllocNewZoneId:
-		return "AllocNewZone";
-	case CloseActiveZoneId:
-		return "CloseActiveZone";
 	case PushExtentId:
 		return "PushExtent";
 	case GetExtent1Id:
@@ -88,8 +84,8 @@ static void ZenfsShowLatency()
 		PreSecondTotalLatency[i] = total_latency;
 
 		if (latency_log_file) {
-			fprintf(latency_log_file, "time: %d, latency[%s](us) => max: %lu, avg: %lu, count: %lu\n", second,
-					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs);
+			fprintf(latency_log_file, "time: %d, latency[%s](us) => max: %lu, avg: %lu, count: %lu, total: %lu\n", second,
+					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 		}
 	}
 }

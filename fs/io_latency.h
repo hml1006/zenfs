@@ -20,8 +20,6 @@
 enum LatencyTargetIndex {
 	TargetStart = 0,
 
-	AllocNewZoneId,
-	CloseActiveZoneId,
 	PushExtentId,
 	GetExtent1Id,
 	GetExtent2Id,
