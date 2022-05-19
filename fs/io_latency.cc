@@ -82,7 +82,7 @@ static void ZenfsShowLatency()
 		PreSecondTotalReqs[i] = total_reqs;
 		PreSecondTotalLatency[i] = total_latency;
 
-		if (latency_log_file || (reqs != 0)) {
+		if (latency_log_file && (reqs != 0)) {
 			fprintf(latency_log_file, "time: %d, latency[%s](us) => max: %lu, avg: %lu, count: %lu, total: %lu\n", second,
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 		}
