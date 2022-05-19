@@ -347,9 +347,7 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
   }
 
   r_off = 0;
-  DEBUG_STEP_LATENCY_START(GetExtent1Id);
   extent = GetExtent(offset, &r_off);
-  DEBUG_STEP_LATENCY_END(GetExtent1Id);
   if (!extent) {
     /* read start beyond end of (synced) file data*/
     *result = Slice(scratch, 0);
@@ -410,7 +408,6 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
     if (read != r_sz && r_off == extent_end) {
       DEBUG_STEP_LATENCY_START(GetExtent2Id);
       extent = GetExtent(offset + read, &r_off);
-      DEBUG_STEP_LATENCY_END(GetExtent2Id);
       if (!extent) {
         /* read beyond end of (synced) file data */
         break;
@@ -596,9 +593,7 @@ IOStatus ZoneFile::Append(void* data, int data_size) {
 
   while (left) {
     if (active_zone_->capacity_ == 0) {
-      DEBUG_STEP_LATENCY_START(PushExtentId);
       PushExtent();
-      DEBUG_STEP_LATENCY_END(PushExtentId);
 
       s = CloseActiveZone();
       if (!s.ok()) {

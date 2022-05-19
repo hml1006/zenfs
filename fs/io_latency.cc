@@ -29,12 +29,6 @@ std::atomic_flag has_inited(false);
 const char* ZenfsGetLatencyTargetName(enum LatencyTargetIndex id)
 {
 	switch (id) {
-	case PushExtentId:
-		return "PushExtent";
-	case GetExtent1Id:
-		return "GetExtent1";
-	case GetExtent2Id:
-		return "GetExtent2";
 	case ZoneAppendId:
 		return "ZoneAppend";
 	case ZoneFileAppendId:
