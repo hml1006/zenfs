@@ -149,9 +149,10 @@ IOStatus Zone::Append(char *data, uint32_t size) {
     return IOStatus::NoSpace("Not enough capacity for append");
 
   assert((size % zbd_->GetBlockSize()) == 0);
-  DEBUG_STEP_LATENCY_START(pwriteId);
   while (left) {
+    DEBUG_STEP_LATENCY_START(pwriteId);
     ret = pwrite(fd, ptr, left, wp_);
+    DEBUG_STEP_LATENCY_END(pwriteId);
     if (ret < 0) {
       return IOStatus::IOError(strerror(errno));
     }
@@ -161,7 +162,6 @@ IOStatus Zone::Append(char *data, uint32_t size) {
     capacity_ -= ret;
     left -= ret;
   }
-  DEBUG_STEP_LATENCY_END(pwriteId);
   return IOStatus::OK();
 }
 
