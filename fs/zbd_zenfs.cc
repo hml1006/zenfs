@@ -150,9 +150,9 @@ IOStatus Zone::Append(char *data, uint32_t size) {
 
   assert((size % zbd_->GetBlockSize()) == 0);
   while (left) {
-    DEBUG_STEP_LATENCY_START(pwriteId);
+    DEBUG_STEP_LATENCY_START(SystemPwrite);
     ret = pwrite(fd, ptr, left, wp_);
-    DEBUG_STEP_LATENCY_END(pwriteId);
+    DEBUG_STEP_LATENCY_END(SystemPwrite);
     if (ret < 0) {
       return IOStatus::IOError(strerror(errno));
     }

@@ -20,12 +20,38 @@
 enum LatencyTargetIndex {
 	TargetStart = 0,
 
-	ZoneFileAppendId,
-	SparseAppendId,
-	BufferedAppendId,
-	preadId,
-	pwriteId,
-	PositionedReadId,
+	ZoneFileAppend,
+	ZoneFileSparseAppend,
+	ZoneFileBufferedAppend,
+	ZoneFilePositionedRead,
+	SystemPread,
+	SystemPwrite,
+
+	ZoneFileBufferedAppendZoneAppend,
+	ZoneFileSparseAppendZoneAppend,
+	ZoneFileAppendZoneAppend,
+
+	ZoneWritableBufferedWrite,
+	ZoneWritableFlushBuffer,
+	ZoneWritableDataSync,
+	ZoneWritablePositionedAppend,
+
+	ZoneWritableDataSyncFlushBuffer,
+	ZoneWritableFlushBufferZoneFileSparseAppend,
+	ZoneWritableFlushBufferZoneFileBufferdAppend,
+	ZoneWritableBufferedWriteFlushBuffer,
+	ZoneWritableAppendBufferedWrite,
+	ZoneWritableAppendZoneFileAppend,
+	ZoneWritableAppend,
+	ZoneWritablePositionedAppendBufferedWrite,
+	ZoneWritablePositionedAppendZoneFileAppend,
+
+	ZoneSeqReadZoneFilePositionedRead,
+	ZoneSeqRead,
+	ZoneSeqPositionedReadZoneFilePositionedRead,
+	ZoneSeqPositionedRead,
+	ZoneRandomReadZoneFilePositionedRead,
+	ZoneRandomRead,
 
 	TargetEnd // end of target index
 };
@@ -33,6 +59,16 @@ enum LatencyTargetIndex {
 extern std::atomic<uint64_t> TotalReqs[TargetEnd];
 // total latency
 extern std::atomic<uint64_t> TotalLatency[TargetEnd];
+
+#define LATENCY_STAT_LEN 100
+#define US_LATENCY_STEP 10
+// us latency, 10 us an item
+extern std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_LEN];
+// ms latency, 1 ms an item
+extern std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_LEN];
+// greater than 100 ms
+extern std::atomic<uint64_t> LatencyStat100Ms[TargetEnd];
+
 // max latency
 extern std::atomic<uint64_t> MaxLatency[TargetEnd];
 
@@ -53,6 +89,11 @@ extern void ZenfsLatencyInit();
 			TotalLatency[targetId] += us; \
 			if (us > MaxLatency[targetId]) { \
 				MaxLatency[targetId] = us; \
+			} \
+			if (likely(us < 1000)) { \
+				LatencyStatUs[targetId][us / US_LATENCY_STEP]++; \
+			} else if (us < LATENCY_STAT_LEN * 1000) { \
+				LatencyStatMs[targetId][us / 1000]++; \
 			} \
 		} \
 		if (unlikely(!has_inited.test_and_set())) { \

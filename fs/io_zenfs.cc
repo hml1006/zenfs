@@ -323,7 +323,7 @@ ZoneExtent* ZoneFile::GetExtent(uint64_t file_offset, uint64_t* dev_offset) {
 
 IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
                                   char* scratch, bool direct) {
-  DEBUG_STEP_LATENCY_START(PositionedReadId);
+  DEBUG_STEP_LATENCY_START(ZoneFilePositionedRead);
   ZenFSMetricsLatencyGuard guard(zbd_->GetMetrics(), ZENFS_READ_LATENCY,
                                  Env::Default());
   zbd_->GetMetrics()->ReportQPS(ZENFS_READ_QPS, 1);
@@ -379,13 +379,13 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
       pread_sz += bytes_to_align;
       aligned = true;
     }
-    DEBUG_STEP_LATENCY_START(preadId);
+    DEBUG_STEP_LATENCY_START(SystemPread);
     if (direct && aligned) {
       r = pread(f_direct, ptr, pread_sz, r_off);
     } else {
       r = pread(f, ptr, pread_sz, r_off);
     }
-    DEBUG_STEP_LATENCY_END(preadId);
+    DEBUG_STEP_LATENCY_END(SystemPread);
     if (r <= 0) {
       if (r == -1 && errno == EINTR) {
         continue;
@@ -423,7 +423,7 @@ IOStatus ZoneFile::PositionedRead(uint64_t offset, size_t n, Slice* result,
   }
 
   *result = Slice((char*)scratch, read);
-  DEBUG_STEP_LATENCY_END(PositionedReadId);
+  DEBUG_STEP_LATENCY_END(ZoneFilePositionedRead);
   return s;
 }
 
@@ -464,7 +464,7 @@ IOStatus ZoneFile::AllocateNewZone() {
 
 /* Byte-aligned writes without a sparse header */
 IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
-  DEBUG_STEP_LATENCY_START(BufferedAppendId);
+  DEBUG_STEP_LATENCY_START(ZoneFileBufferedAppend);
   uint32_t left = data_size;
   uint32_t wr_size;
   uint32_t block_sz = GetBlockSize();
@@ -489,7 +489,9 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
     if (pad_sz) memset(buffer + wr_size, 0x0, pad_sz);
 
     uint64_t extent_length = wr_size;
+    DEBUG_STEP_LATENCY_START(ZoneFileBufferedAppendZoneAppend);
     s = active_zone_->Append(buffer, wr_size + pad_sz);
+    DEBUG_STEP_LATENCY_END(ZoneFileBufferedAppendZoneAppend);
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -512,14 +514,14 @@ IOStatus ZoneFile::BufferedAppend(char* buffer, uint32_t data_size) {
       if (!s.ok()) return s;
     }
   }
-  DEBUG_STEP_LATENCY_END(BufferedAppendId);
+  DEBUG_STEP_LATENCY_END(ZoneFileBufferedAppend);
   return IOStatus::OK();
 }
 
 /* Byte-aligned, sparse writes with inline metadata
    the caller reserves 8 bytes of data for a size header */
 IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
-  DEBUG_STEP_LATENCY_START(SparseAppendId);
+  DEBUG_STEP_LATENCY_START(ZoneFileSparseAppend);
   uint32_t left = data_size;
   uint32_t wr_size;
   uint32_t block_sz = GetBlockSize();
@@ -546,7 +548,9 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
 
     uint64_t extent_length = wr_size - ZoneFile::SPARSE_HEADER_SIZE;
     EncodeFixed64(sparse_buffer, extent_length);
+    DEBUG_STEP_LATENCY_START(ZoneFileSparseAppendZoneAppend);
     s = active_zone_->Append(sparse_buffer, wr_size + pad_sz);
+    DEBUG_STEP_LATENCY_END(ZoneFileSparseAppendZoneAppend);
     if (!s.ok()) return s;
 
     extents_.push_back(
@@ -571,13 +575,13 @@ IOStatus ZoneFile::SparseAppend(char* sparse_buffer, uint32_t data_size) {
       if (!s.ok()) return s;
     }
   }
-  DEBUG_STEP_LATENCY_END(SparseAppendId);
+  DEBUG_STEP_LATENCY_END(ZoneFileSparseAppend);
   return IOStatus::OK();
 }
 
 /* Assumes that data and size are block aligned */
 IOStatus ZoneFile::Append(void* data, int data_size) {
-  DEBUG_STEP_LATENCY_START(ZoneFileAppendId);
+  DEBUG_STEP_LATENCY_START(ZoneFileAppend);
   uint32_t left = data_size;
   uint32_t wr_size, offset = 0;
   IOStatus s = IOStatus::OK();
@@ -602,15 +606,16 @@ IOStatus ZoneFile::Append(void* data, int data_size) {
 
     wr_size = left;
     if (wr_size > active_zone_->capacity_) wr_size = active_zone_->capacity_;
-
+    DEBUG_STEP_LATENCY_START(ZoneFileAppendZoneAppend);
     s = active_zone_->Append((char*)data + offset, wr_size);
+    DEBUG_STEP_LATENCY_END(ZoneFileAppendZoneAppend);
     if (!s.ok()) return s;
 
     file_size_ += wr_size;
     left -= wr_size;
     offset += wr_size;
   }
-  DEBUG_STEP_LATENCY_END(ZoneFileAppendId);
+  DEBUG_STEP_LATENCY_END(ZoneFileAppend);
   return IOStatus::OK();
 }
 
@@ -829,11 +834,14 @@ IOStatus ZonedWritableFile::Truncate(uint64_t size,
 }
 
 IOStatus ZonedWritableFile::DataSync() {
+  DEBUG_STEP_LATENCY_START(ZoneWritableDataSync);
   if (buffered) {
     IOStatus s;
     buffer_mtx_.lock();
+    DEBUG_STEP_LATENCY_START(ZoneWritableDataSyncFlushBuffer);
     /* Flushing the buffer will result in a new extent added to the list*/
     s = FlushBuffer();
+    DEBUG_STEP_LATENCY_END(ZoneWritableDataSyncFlushBuffer);
     buffer_mtx_.unlock();
     if (!s.ok()) {
       return s;
@@ -848,7 +856,7 @@ IOStatus ZonedWritableFile::DataSync() {
        an extent for the latest written data */
     zoneFile_->PushExtent();
   }
-
+  DEBUG_STEP_LATENCY_END(ZoneWritableDataSync);
   return IOStatus::OK();
 }
 
@@ -906,14 +914,19 @@ IOStatus ZonedWritableFile::CloseInternal() {
 }
 
 IOStatus ZonedWritableFile::FlushBuffer() {
+  DEBUG_STEP_LATENCY_START(ZoneWritableFlushBuffer);
   IOStatus s;
 
   if (buffer_pos == 0) return IOStatus::OK();
 
   if (zoneFile_->IsSparse()) {
+	DEBUG_STEP_LATENCY_START(ZoneWritableFlushBufferZoneFileSparseAppend);
     s = zoneFile_->SparseAppend(sparse_buffer, buffer_pos);
+    DEBUG_STEP_LATENCY_END(ZoneWritableFlushBufferZoneFileSparseAppend);
   } else {
+	DEBUG_STEP_LATENCY_START(ZoneWritableFlushBufferZoneFileBufferdAppend);
     s = zoneFile_->BufferedAppend(buffer, buffer_pos);
+    DEBUG_STEP_LATENCY_END(ZoneWritableFlushBufferZoneFileBufferdAppend);
   }
 
   if (!s.ok()) {
@@ -922,11 +935,12 @@ IOStatus ZonedWritableFile::FlushBuffer() {
 
   wp += buffer_pos;
   buffer_pos = 0;
-
+  DEBUG_STEP_LATENCY_END(ZoneWritableFlushBuffer);
   return IOStatus::OK();
 }
 
 IOStatus ZonedWritableFile::BufferedWrite(const Slice& slice) {
+  DEBUG_STEP_LATENCY_START(ZoneWritableBufferedWrite);
   uint32_t data_left = slice.size();
   char* data = (char*)slice.data();
   IOStatus s;
@@ -936,7 +950,9 @@ IOStatus ZonedWritableFile::BufferedWrite(const Slice& slice) {
     uint32_t to_buffer;
 
     if (!buffer_left) {
+      DEBUG_STEP_LATENCY_START(ZoneWritableBufferedWriteFlushBuffer);
       s = FlushBuffer();
+      DEBUG_STEP_LATENCY_END(ZoneWritableBufferedWriteFlushBuffer);
       if (!s.ok()) return s;
       buffer_left = buffer_sz;
     }
@@ -951,7 +967,7 @@ IOStatus ZonedWritableFile::BufferedWrite(const Slice& slice) {
     data_left -= to_buffer;
     data += to_buffer;
   }
-
+  DEBUG_STEP_LATENCY_END(ZoneWritableBufferedWrite);
   return IOStatus::OK();
 }
 
@@ -967,16 +983,20 @@ IOStatus ZonedWritableFile::Append(const Slice& data,
   zoneFile_->GetZBDMetrics()->ReportQPS(ZENFS_WRITE_QPS, 1);
   zoneFile_->GetZBDMetrics()->ReportThroughput(ZENFS_WRITE_THROUGHPUT,
                                                data.size());
-
+  DEBUG_STEP_LATENCY_START(ZoneWritableAppend);
   if (buffered) {
     buffer_mtx_.lock();
+    DEBUG_STEP_LATENCY_START(ZoneWritableAppendBufferedWrite);
     s = BufferedWrite(data);
+    DEBUG_STEP_LATENCY_END(ZoneWritableAppendBufferedWrite);
     buffer_mtx_.unlock();
   } else {
+	DEBUG_STEP_LATENCY_START(ZoneWritableAppendZoneFileAppend);
     s = zoneFile_->Append((void*)data.data(), data.size());
+	DEBUG_STEP_LATENCY_END(ZoneWritableAppendZoneFileAppend);
     if (s.ok()) wp += data.size();
   }
-
+  DEBUG_STEP_LATENCY_END(ZoneWritableAppend);
   return s;
 }
 
@@ -992,7 +1012,7 @@ IOStatus ZonedWritableFile::PositionedAppend(const Slice& data, uint64_t offset,
   zoneFile_->GetZBDMetrics()->ReportQPS(ZENFS_WRITE_QPS, 1);
   zoneFile_->GetZBDMetrics()->ReportThroughput(ZENFS_WRITE_THROUGHPUT,
                                                data.size());
-
+  DEBUG_STEP_LATENCY_START(ZoneWritablePositionedAppend);
   if (offset != wp) {
     assert(false);
     return IOStatus::IOError("positioned append not at write pointer");
@@ -1000,13 +1020,17 @@ IOStatus ZonedWritableFile::PositionedAppend(const Slice& data, uint64_t offset,
 
   if (buffered) {
     buffer_mtx_.lock();
+    DEBUG_STEP_LATENCY_START(ZoneWritablePositionedAppendBufferedWrite);
     s = BufferedWrite(data);
+    DEBUG_STEP_LATENCY_END(ZoneWritablePositionedAppendBufferedWrite);
     buffer_mtx_.unlock();
   } else {
+	DEBUG_STEP_LATENCY_START(ZoneWritablePositionedAppendZoneFileAppend);
     s = zoneFile_->Append((void*)data.data(), data.size());
+    DEBUG_STEP_LATENCY_END(ZoneWritablePositionedAppendZoneFileAppend);
     if (s.ok()) wp += data.size();
   }
-
+  DEBUG_STEP_LATENCY_END(ZoneWritablePositionedAppend);
   return s;
 }
 
@@ -1018,10 +1042,12 @@ IOStatus ZonedSequentialFile::Read(size_t n, const IOOptions& /*options*/,
                                    Slice* result, char* scratch,
                                    IODebugContext* /*dbg*/) {
   IOStatus s;
-
+  DEBUG_STEP_LATENCY_START(ZoneSeqRead);
+  DEBUG_STEP_LATENCY_START(ZoneSeqReadZoneFilePositionedRead);
   s = zoneFile_->PositionedRead(rp, n, result, scratch, direct_);
+  DEBUG_STEP_LATENCY_END(ZoneSeqReadZoneFilePositionedRead);
   if (s.ok()) rp += result->size();
-
+  DEBUG_STEP_LATENCY_END(ZoneSeqRead);
   return s;
 }
 
@@ -1036,14 +1062,24 @@ IOStatus ZonedSequentialFile::PositionedRead(uint64_t offset, size_t n,
                                              const IOOptions& /*options*/,
                                              Slice* result, char* scratch,
                                              IODebugContext* /*dbg*/) {
-  return zoneFile_->PositionedRead(offset, n, result, scratch, direct_);
+  DEBUG_STEP_LATENCY_START(ZoneSeqPositionedRead);
+  DEBUG_STEP_LATENCY_START(ZoneSeqPositionedReadZoneFilePositionedRead);
+  auto ret = zoneFile_->PositionedRead(offset, n, result, scratch, direct_);
+  DEBUG_STEP_LATENCY_END(ZoneSeqPositionedReadZoneFilePositionedRead);
+  DEBUG_STEP_LATENCY_END(ZoneSeqPositionedRead);
+  return ret;
 }
 
 IOStatus ZonedRandomAccessFile::Read(uint64_t offset, size_t n,
                                      const IOOptions& /*options*/,
                                      Slice* result, char* scratch,
                                      IODebugContext* /*dbg*/) const {
-  return zoneFile_->PositionedRead(offset, n, result, scratch, direct_);
+  DEBUG_STEP_LATENCY_START(ZoneRandomRead);
+  DEBUG_STEP_LATENCY_START(ZoneRandomReadZoneFilePositionedRead);
+  auto ret = zoneFile_->PositionedRead(offset, n, result, scratch, direct_);
+  DEBUG_STEP_LATENCY_END(ZoneRandomReadZoneFilePositionedRead);
+  DEBUG_STEP_LATENCY_END(ZoneRandomRead);
+  return ret;
 }
 
 size_t ZoneFile::GetUniqueId(char* id, size_t max_size) {
