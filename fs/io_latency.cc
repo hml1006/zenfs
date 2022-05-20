@@ -24,6 +24,9 @@ std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_LEN] = {};
 std::atomic<uint64_t> LatencyStat100Ms[TargetEnd] = {};
 uint64_t LatencyStatUsTmp[TargetEnd][LATENCY_STAT_LEN] = {};
 uint64_t LatencyStatMsTmp[TargetEnd][LATENCY_STAT_LEN] = {};
+std::atomic<int> PWriteDataLen[PWRITE_DATA_ARR_LEN] = {};
+std::atomic<int> PWriteDataLen1MB = 0;
+int PWriteDataLenTmp[1024] = {};
 
 // pre total calls
 uint64_t PreTotalReqs[TargetEnd] = {};
@@ -163,6 +166,14 @@ static void ZenfsShowLatency()
 			fprintf(latency_log_file, ">100 ms\t\t\t%lu\n", greater_than_100ms);
 		}
 	}
+	fprintf(latency_log_file, "pwrite len(KB)\tcount\n");
+	for (int i = 0; i < PWRITE_DATA_ARR_LEN; i++) {
+		int count = PWriteDataLen[i].fetch_and(0);
+		if (count > 0) {
+			fprintf(latency_log_file, "%d-%d\t%d\n", i, i + 1, count);
+		}
+	}
+	fprintf(latency_log_file, "> 1MB\t%d\n", PWriteDataLen1MB.fetch_and(0));
 }
 void LoopShowLatency()
 {

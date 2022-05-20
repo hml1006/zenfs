@@ -156,6 +156,7 @@ IOStatus Zone::Append(char *data, uint32_t size) {
     if (ret < 0) {
       return IOStatus::IOError(strerror(errno));
     }
+    PWRITE_LEN_STAT(ret);
 
     ptr += ret;
     wp_ += ret;

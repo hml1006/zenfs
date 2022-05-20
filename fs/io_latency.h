@@ -69,6 +69,19 @@ extern std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_LEN];
 // greater than 100 ms
 extern std::atomic<uint64_t> LatencyStat100Ms[TargetEnd];
 
+#define PWRITE_DATA_ARR_LEN 1025
+
+extern std::atomic<int> PWriteDataLen[PWRITE_DATA_ARR_LEN];
+extern std::atomic<int> PWriteDataLen1MB;
+
+#define PWRITE_LEN_STAT(len)	do { \
+		if (len <= 1024 * (PWRITE_DATA_ARR_LEN - 1)) { \
+			PWriteDataLen[len / 1024]++; \
+		} else if (len > 1024 * (PWRITE_DATA_ARR_LEN - 1)) { \
+			PWriteDataLen1MB++; \
+		} \
+	} while(0)
+
 // max latency
 extern std::atomic<uint64_t> MaxLatency[TargetEnd];
 
