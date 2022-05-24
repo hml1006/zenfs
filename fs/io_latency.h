@@ -60,12 +60,13 @@ extern std::atomic<uint64_t> TotalReqs[TargetEnd];
 // total latency
 extern std::atomic<uint64_t> TotalLatency[TargetEnd];
 
-#define LATENCY_STAT_LEN 100
-#define US_LATENCY_STEP 10
+#define US_LATENCY_STEP 16
+#define LATENCY_STAT_US_LEN (1024 / US_LATENCY_STEP)
+#define LATENCY_STAT_MS_LEN 100
 // us latency, 10 us an item
-extern std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_LEN];
+extern std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_US_LEN];
 // ms latency, 1 ms an item
-extern std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_LEN];
+extern std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_MS_LEN];
 // greater than 100 ms
 extern std::atomic<uint64_t> LatencyStat100Ms[TargetEnd];
 
@@ -105,7 +106,7 @@ extern void ZenfsLatencyInit();
 			} \
 			if (likely(us < 1000)) { \
 				LatencyStatUs[targetId][us / US_LATENCY_STEP]++; \
-			} else if (us < LATENCY_STAT_LEN * 1000) { \
+			} else if (us < LATENCY_STAT_MS_LEN * 1000) { \
 				LatencyStatMs[targetId][us / 1000]++; \
 			} \
 		} \

@@ -18,12 +18,12 @@ std::atomic<uint64_t> TotalLatency[TargetEnd] = {};
 std::atomic<uint64_t> MaxLatency[TargetEnd] = {};
 
 // us latency, 10 us an item
-std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_LEN] = {};
+std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_US_LEN] = {};
 // ms latency, 1 ms an item
-std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_LEN] = {};
+std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_MS_LEN] = {};
 std::atomic<uint64_t> LatencyStat100Ms[TargetEnd] = {};
-uint64_t LatencyStatUsTmp[TargetEnd][LATENCY_STAT_LEN] = {};
-uint64_t LatencyStatMsTmp[TargetEnd][LATENCY_STAT_LEN] = {};
+uint64_t LatencyStatUsTmp[TargetEnd][LATENCY_STAT_US_LEN] = {};
+uint64_t LatencyStatMsTmp[TargetEnd][LATENCY_STAT_MS_LEN] = {};
 std::atomic<int> PWriteDataLen[PWRITE_DATA_ARR_LEN] = {};
 std::atomic<int> PWriteDataLen1MB = 0;
 int PWriteDataLenTmp[1024] = {};
@@ -142,8 +142,10 @@ static void ZenfsShowLatency()
 		PreTotalReqs[i] = total_reqs;
 		PreTotalLatency[i] = total_latency;
 
-		for (int j = 0; j < LATENCY_STAT_LEN; j++) {
+		for (int j = 0; j < LATENCY_STAT_US_LEN; j++) {
 			LatencyStatUsTmp[i][j] = LatencyStatUs[i][j].fetch_and(0);
+		}
+		for (int j = 0; j < LATENCY_STAT_MS_LEN; j++) {
 			LatencyStatMsTmp[i][j] = LatencyStatMs[i][j].fetch_and(0);
 		}
 		uint64_t greater_than_100ms = LatencyStat100Ms[i].fetch_and(0);
@@ -153,12 +155,12 @@ static void ZenfsShowLatency()
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 			fprintf(latency_log_file, "**************************************************************************\n");
 			fprintf(latency_log_file, "latency\t\tcount\n");
-			for (int j = 0; j < LATENCY_STAT_LEN; j++) {
+			for (int j = 0; j < LATENCY_STAT_US_LEN; j++) {
 				if (0 != LatencyStatUsTmp[i][j]) {
 					fprintf(latency_log_file, "%d-%d us\t\t%lu\n", j * US_LATENCY_STEP, (j + 1) * US_LATENCY_STEP, LatencyStatUsTmp[i][j]);
 				}
 			}
-			for (int j = 0; j < LATENCY_STAT_LEN; j++) {
+			for (int j = 0; j < LATENCY_STAT_MS_LEN; j++) {
 				if (0 != LatencyStatMsTmp[i][j]) {
 					fprintf(latency_log_file, "%d ms\t\t%lu\n", j + 1, LatencyStatMsTmp[i][j]);
 				}
