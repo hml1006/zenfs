@@ -126,10 +126,14 @@ static void ZenfsCloseLatencyLog()
 }
 
 #define TIME_STEP	5
-static int second = 0;
+static time_t second = 0;
 
 static void ZenfsShowLatency()
 {
+	struct tm *current;
+	char fmt_time[32] = {0};
+	current = localtime(&second);
+	strftime(fmt_time, sizeof(fmt_time), "%Y-%m-%d %H:%M:%S", current);
 	for (int i = TargetStart + 1; i < TargetEnd; i++) {
 		uint64_t total_reqs =TotalReqs[i].load();
 		uint64_t total_latency = TotalLatency[i].load();
@@ -150,7 +154,7 @@ static void ZenfsShowLatency()
 		}
 		uint64_t greater_than_100ms = LatencyStat100Ms[i].fetch_and(0);
 		if (latency_log_file && (reqs != 0)) {
-			fprintf(latency_log_file, "===================================time %d==================================\n", second);
+			fprintf(latency_log_file, "===================================time %s==================================\n", fmt_time);
 			fprintf(latency_log_file, "latency[%s](us) => max: %lu, avg: %lu, count: %lu, total: %lu\n",
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 			fprintf(latency_log_file, "**************************************************************************\n");
@@ -181,8 +185,8 @@ void LoopShowLatency()
 {
 	for(;;) {
 		sleep(1);
+		second = time(NULL);
 		ZenfsShowLatency();
-		second += TIME_STEP;
 	}
 }
 
