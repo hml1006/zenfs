@@ -5,6 +5,8 @@
  *      Author: hml1006
  */
 #include "io_latency.h"
+#include <set>
+#include <mutex>
 #include <cstdio>
 #include <string>
 #include <thread>
@@ -33,6 +35,8 @@ uint64_t PreTotalReqs[TargetEnd] = {};
 // pre second total latency
 uint64_t PreTotalLatency[TargetEnd] = {};
 
+static std::set<long int> append_thread_set;
+static std::mutex append_thread_set_mutex;
 
 FILE *latency_log_file = NULL;
 std::atomic_flag has_inited(false);
@@ -154,22 +158,24 @@ static void ZenfsShowLatency()
 		}
 		uint64_t greater_than_100ms = LatencyStat100Ms[i].fetch_and(0);
 		if (latency_log_file && (reqs != 0)) {
-			fprintf(latency_log_file, "===================================time %s==================================\n", fmt_time);
+			fprintf(latency_log_file, "\n===================================time %s==================================\n", fmt_time);
 			fprintf(latency_log_file, "latency[%s](us) => max: %lu, avg: %lu, count: %lu, total: %lu\n",
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 			fprintf(latency_log_file, "**************************************************************************\n");
 			fprintf(latency_log_file, "latency\t\tcount\n");
 			for (int j = 0; j < LATENCY_STAT_US_LEN; j++) {
-				if (0 != LatencyStatUsTmp[i][j]) {
+				if (LatencyStatUsTmp[i][j]) {
 					fprintf(latency_log_file, "%d-%d us\t\t%lu\n", j * US_LATENCY_STEP, (j + 1) * US_LATENCY_STEP, LatencyStatUsTmp[i][j]);
 				}
 			}
 			for (int j = 0; j < LATENCY_STAT_MS_LEN; j++) {
-				if (0 != LatencyStatMsTmp[i][j]) {
+				if (LatencyStatMsTmp[i][j]) {
 					fprintf(latency_log_file, "%d ms\t\t%lu\n", j + 1, LatencyStatMsTmp[i][j]);
 				}
 			}
-			fprintf(latency_log_file, ">100 ms\t\t\t%lu\n", greater_than_100ms);
+			if (greater_than_100ms) {
+				fprintf(latency_log_file, ">100 ms\t\t\t%lu\n", greater_than_100ms);
+			}
 		}
 	}
 	fprintf(latency_log_file, "pwrite len(KB)\tcount\n");
@@ -179,8 +185,18 @@ static void ZenfsShowLatency()
 			fprintf(latency_log_file, "%d-%d\t%d\n", i, i + 1, count);
 		}
 	}
-	fprintf(latency_log_file, "> 1MB\t%d\n", PWriteDataLen1MB.fetch_and(0));
+	uint64_t large_then_1MB = PWriteDataLen1MB.fetch_and(0);
+	if (large_then_1MB) {
+		fprintf(latency_log_file, "> 1MB\t%ld\n", large_then_1MB);
+	}
+	append_thread_set_mutex.lock();
+	fprintf(latency_log_file, "zone append thread id list, num = %ld\n", append_thread_set.size());
+	for (auto it = append_thread_set.begin(); it != append_thread_set.end(); it++) {
+		fprintf(latency_log_file, "%ld  ", *it);
+	}
+	append_thread_set_mutex.unlock();
 }
+
 void LoopShowLatency()
 {
 	for(;;) {
@@ -188,6 +204,13 @@ void LoopShowLatency()
 		second = time(NULL);
 		ZenfsShowLatency();
 	}
+}
+
+
+void RecordThreadId()
+{
+	std::lock_guard<std::mutex> lock(append_thread_set_mutex);
+	append_thread_set.insert(gettid());
 }
 
 void ZenfsLatencyInit()

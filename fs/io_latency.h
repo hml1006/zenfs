@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <atomic>
 #include <string>
+#include <sys/syscall.h>
 
 #define likely(x)       __builtin_expect(!!(x), 1)
 #define unlikely(x)     __builtin_expect(!!(x), 0)
@@ -93,22 +94,26 @@ extern std::atomic<uint64_t> MaxLatency[TargetEnd];
 
 extern std::atomic_flag has_inited;
 extern void ZenfsLatencyInit();
+extern void RecordThreadId();
 // latency end
 #define DEBUG_STEP_LATENCY_END(targetId)	do { \
 		struct timeval targetId##end; \
 		gettimeofday(&targetId##end, NULL); \
+		int64_t us = (targetId##end.tv_sec - targetId##start.tv_sec) * US_PER_SECOND + targetId##end.tv_usec - targetId##start.tv_usec; \
+		if (unlikely(us < 0)) { \
+			us = 0; \
+		} \
 		TotalReqs[targetId]++; \
-		uint64_t us = (targetId##end.tv_sec - targetId##start.tv_sec) * US_PER_SECOND + targetId##end.tv_usec - targetId##start.tv_usec; \
-		if (likely(us > 0)) { \
-			TotalLatency[targetId] += us; \
-			if (us > MaxLatency[targetId]) { \
-				MaxLatency[targetId] = us; \
-			} \
-			if (likely(us < 1000)) { \
-				LatencyStatUs[targetId][us / US_LATENCY_STEP]++; \
-			} else if (us < LATENCY_STAT_MS_LEN * 1000) { \
-				LatencyStatMs[targetId][us / 1000]++; \
-			} \
+		TotalLatency[targetId] += us; \
+		if ((uint64_t)us > MaxLatency[targetId]) { \
+			MaxLatency[targetId] = us; \
+		} \
+		if (likely(us < 1000)) { \
+			LatencyStatUs[targetId][us / US_LATENCY_STEP]++; \
+		} else if (us < LATENCY_STAT_MS_LEN * 1000) { \
+			LatencyStatMs[targetId][us / 1000]++; \
+		} else { \
+			LatencyStat100Ms[targetId]++; \
 		} \
 		if (unlikely(!has_inited.test_and_set())) { \
 			ZenfsLatencyInit(); \

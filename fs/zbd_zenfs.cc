@@ -145,6 +145,8 @@ IOStatus Zone::Append(char *data, uint32_t size) {
   int fd = zbd_->GetWriteFD();
   int ret;
 
+  RecordThreadId();
+
   if (capacity_ < size)
     return IOStatus::NoSpace("Not enough capacity for append");
 
