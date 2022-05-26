@@ -34,6 +34,10 @@ int PWriteDataLenTmp[1024] = {};
 uint64_t PreTotalReqs[TargetEnd] = {};
 // pre second total latency
 uint64_t PreTotalLatency[TargetEnd] = {};
+// pre latency
+uint64_t PreLatency[TargetEnd] = {};
+// pre call count
+uint64_t PreCount[TargetEnd] = {};
 // pre max latency
 uint64_t PreMaxLatency[TargetEnd] = {};
 // pre average latency
@@ -141,43 +145,47 @@ static time_t second = 0;
 static void ShowCallTrace()
 {
 	fprintf(latency_log_file, "write******************************************************************************************************************************\n");
-	fprintf(latency_log_file, "                                                  [pwrite<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[SystemPwrite], PreTotalReqs[SystemPwrite], PreTotalLatency[SystemPwrite]);
+	fprintf(latency_log_file, "                                                  [pwrite<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[SystemPwrite], PreCount[SystemPwrite], PreLatency[SystemPwrite]);
 	fprintf(latency_log_file, "                                                            |\n                                                            |\n");
-	fprintf(latency_log_file, "                                               [Zone::Append()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneAppend], PreTotalReqs[ZoneAppend], PreTotalLatency[ZoneAppend]);
-	fprintf(latency_log_file, "                                                            |____________________________________________________________\n                                                            |                                                            |\n");
+	fprintf(latency_log_file, "                                               [Zone::Append()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneAppend], PreCount[ZoneAppend], PreLatency[ZoneAppend]);
+	fprintf(latency_log_file, "                     _______________________________________|_____________________________________________________\n");
+	fprintf(latency_log_file, "                    |                                       |                                                     |\n");
+	fprintf(latency_log_file, "             <a:%3ld,c:%6ld,t:%6ld>               <a:%3ld,c:%6ld,t:%6ld>                              <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneFileAppendZoneAppend], PreCount[ZoneFileAppendZoneAppend], PreLatency[ZoneFileAppendZoneAppend],
+			PreAvgLatency[ZoneFileSparseAppendZoneAppend], PreCount[ZoneFileSparseAppendZoneAppend], PreLatency[ZoneFileSparseAppendZoneAppend],PreAvgLatency[ZoneFileBufferedAppendZoneAppend], PreCount[ZoneFileBufferedAppendZoneAppend], PreLatency[ZoneFileBufferedAppendZoneAppend]);
+	fprintf(latency_log_file, "                    |                                       |                                                     |\n");
 	fprintf(latency_log_file, "  [ZoneFile::Append()<a:%3ld,c:%6ld,t:%6ld>]   [ZoneFile::SparseAppend()<a:%3ld,c:%6ld,t:%6ld>]    [ZoneFile::BufferedAppend()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneFileAppend],
-			PreTotalReqs[ZoneFileAppend], PreTotalLatency[ZoneFileAppend], PreAvgLatency[ZoneFileSparseAppend], PreTotalReqs[ZoneFileSparseAppend], PreTotalLatency[ZoneFileSparseAppend], PreAvgLatency[ZoneFileBufferedAppend], PreTotalReqs[ZoneFileBufferedAppend], PreTotalLatency[ZoneFileBufferedAppend]);
+			PreCount[ZoneFileAppend], PreLatency[ZoneFileAppend], PreAvgLatency[ZoneFileSparseAppend], PreCount[ZoneFileSparseAppend], PreLatency[ZoneFileSparseAppend], PreAvgLatency[ZoneFileBufferedAppend], PreCount[ZoneFileBufferedAppend], PreLatency[ZoneFileBufferedAppend]);
 	fprintf(latency_log_file, "                    |  |                                        |__________________              __________________|\n                    |  |                                                          |              |\n");
-	fprintf(latency_log_file, "                    |  |                                         <a:%3ld,c:%6ld,t:%6ld>   <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneWritableFlushBufferZoneFileSparseAppend], PreTotalReqs[ZoneWritableFlushBufferZoneFileSparseAppend], PreTotalLatency[ZoneWritableFlushBufferZoneFileSparseAppend],
-			PreAvgLatency[ZoneWritableFlushBufferZoneFileBufferdAppend], PreTotalReqs[ZoneWritableFlushBufferZoneFileBufferdAppend], PreTotalLatency[ZoneWritableFlushBufferZoneFileBufferdAppend]);
+	fprintf(latency_log_file, "                    |  |                                         <a:%3ld,c:%6ld,t:%6ld>   <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneWritableFlushBufferZoneFileSparseAppend], PreCount[ZoneWritableFlushBufferZoneFileSparseAppend], PreLatency[ZoneWritableFlushBufferZoneFileSparseAppend],
+			PreAvgLatency[ZoneWritableFlushBufferZoneFileBufferdAppend], PreCount[ZoneWritableFlushBufferZoneFileBufferdAppend], PreLatency[ZoneWritableFlushBufferZoneFileBufferdAppend]);
 	fprintf(latency_log_file, "                    |  |______________________________                            |              |\n");
-	fprintf(latency_log_file, "                    |                                |                   [ZonedWritableFile::FlushBuffer()<a:%3ld,c:%6ld,t:%6ld>]--------------------\n", PreAvgLatency[ZoneWritableFlushBuffer], PreTotalReqs[ZoneWritableFlushBuffer], PreTotalLatency[ZoneWritableFlushBuffer]);
+	fprintf(latency_log_file, "                    |                                |                   [ZonedWritableFile::FlushBuffer()<a:%3ld,c:%6ld,t:%6ld>]--------------------\n", PreAvgLatency[ZoneWritableFlushBuffer], PreCount[ZoneWritableFlushBuffer], PreLatency[ZoneWritableFlushBuffer]);
 	fprintf(latency_log_file, "                    |                                |                                       |                                                         |\n");
-	fprintf(latency_log_file, "                    |                                |                        <a:%3ld,c:%6ld,t:%6ld>                                                |\n", PreAvgLatency[ZoneWritableBufferedWriteFlushBuffer], PreTotalReqs[ZoneWritableBufferedWriteFlushBuffer], PreTotalLatency[ZoneWritableBufferedWriteFlushBuffer]);
-	fprintf(latency_log_file, "    <a:%3ld,c:%6ld,t:%6ld>                        |                                       |                                                         |\n", PreAvgLatency[ZoneWritablePositionedAppendZoneFileAppend], PreTotalReqs[ZoneWritablePositionedAppendZoneFileAppend], PreTotalLatency[ZoneWritablePositionedAppendZoneFileAppend]);
-	fprintf(latency_log_file, "                    |                                |             [ZonedWritableFile::BufferedWrite()<a:%3ld,c:%8ld,t:%8ld>]                       |\n", PreAvgLatency[ZoneWritableBufferedWrite], PreTotalReqs[ZoneWritableBufferedWrite], PreTotalLatency[ZoneWritableBufferedWrite]);
+	fprintf(latency_log_file, "                    |                                |                        <a:%3ld,c:%6ld,t:%6ld>                                                |\n", PreAvgLatency[ZoneWritableBufferedWriteFlushBuffer], PreCount[ZoneWritableBufferedWriteFlushBuffer], PreLatency[ZoneWritableBufferedWriteFlushBuffer]);
+	fprintf(latency_log_file, "    <a:%3ld,c:%6ld,t:%6ld>                        |                                       |                                                         |\n", PreAvgLatency[ZoneWritablePositionedAppendZoneFileAppend], PreCount[ZoneWritablePositionedAppendZoneFileAppend], PreLatency[ZoneWritablePositionedAppendZoneFileAppend]);
+	fprintf(latency_log_file, "                    |                                |             [ZonedWritableFile::BufferedWrite()<a:%3ld,c:%8ld,t:%8ld>]                   |\n", PreAvgLatency[ZoneWritableBufferedWrite], PreCount[ZoneWritableBufferedWrite], PreLatency[ZoneWritableBufferedWrite]);
 	fprintf(latency_log_file, "                    |             ___________________|________________________|                                                                        |\n");
-	fprintf(latency_log_file, "                    |            |                   |                                                                                     <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneWritableDataSyncFlushBuffer], PreTotalReqs[ZoneWritableDataSyncFlushBuffer], PreTotalLatency[ZoneWritableDataSyncFlushBuffer]);
-	fprintf(latency_log_file, "                    |  <a:%3ld,c:%6ld,t:%6ld>   <a:%3ld,c:%6ld,t:%6ld>                                                                           |\n", PreAvgLatency[ZoneWritablePositionedAppendZoneFileAppend], PreTotalReqs[ZoneWritablePositionedAppendZoneFileAppend], PreTotalLatency[ZoneWritablePositionedAppendZoneFileAppend],PreAvgLatency[ZoneWritableAppendZoneFileAppend], PreTotalReqs[ZoneWritableAppendZoneFileAppend], PreTotalLatency[ZoneWritableAppendZoneFileAppend]);
+	fprintf(latency_log_file, "                    |            |                   |                                                                                     <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneWritableDataSyncFlushBuffer], PreCount[ZoneWritableDataSyncFlushBuffer], PreLatency[ZoneWritableDataSyncFlushBuffer]);
+	fprintf(latency_log_file, "                    |  <a:%3ld,c:%6ld,t:%6ld>   <a:%3ld,c:%6ld,t:%6ld>                                                                           |\n", PreAvgLatency[ZoneWritablePositionedAppendZoneFileAppend], PreCount[ZoneWritablePositionedAppendZoneFileAppend], PreLatency[ZoneWritablePositionedAppendZoneFileAppend],PreAvgLatency[ZoneWritableAppendZoneFileAppend], PreCount[ZoneWritableAppendZoneFileAppend], PreLatency[ZoneWritableAppendZoneFileAppend]);
 	fprintf(latency_log_file, "                    |            |                   |________________________________                                                                 |\n                    |            |                                                    |                                                                |\n");
-	fprintf(latency_log_file, "[ZonedWritableFile::PositionedAppend()<a:%3ld,c:%6ld,t:%6ld>]            [ZonedWritableFile::Append()<a:%3ld,c:%6ld,t:%6ld>]       [ZonedWritableFile::DataSync()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneWritablePositionedAppend], PreTotalReqs[ZoneWritablePositionedAppend], PreTotalLatency[ZoneWritablePositionedAppend],PreAvgLatency[ZoneWritableAppend], PreTotalReqs[ZoneWritableAppend], PreTotalLatency[ZoneWritableAppend],PreAvgLatency[ZoneWritableDataSync], PreTotalReqs[ZoneWritableDataSync], PreTotalLatency[ZoneWritableDataSync]);
+	fprintf(latency_log_file, "[ZonedWritableFile::PositionedAppend()<a:%3ld,c:%6ld,t:%6ld>]            [ZonedWritableFile::Append()<a:%3ld,c:%6ld,t:%6ld>]       [ZonedWritableFile::DataSync()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneWritablePositionedAppend], PreCount[ZoneWritablePositionedAppend], PreLatency[ZoneWritablePositionedAppend],PreAvgLatency[ZoneWritableAppend], PreCount[ZoneWritableAppend], PreLatency[ZoneWritableAppend],PreAvgLatency[ZoneWritableDataSync], PreCount[ZoneWritableDataSync], PreLatency[ZoneWritableDataSync]);
 	fprintf(latency_log_file, "write******************************************************************************************************************************\n");
 
 	fprintf(latency_log_file, "read******************************************************************************************************************************\n");
-	fprintf(latency_log_file, "                                                              [pread()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[SystemPread], PreTotalReqs[SystemPread], PreTotalLatency[SystemPread]);
+	fprintf(latency_log_file, "                                                              [pread()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[SystemPread], PreCount[SystemPread], PreLatency[SystemPread]);
 	fprintf(latency_log_file, "                                                                         |\n                                                                         |\n");
-	fprintf(latency_log_file, "                                                         [ZoneFile::PositionedRead()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneFilePositionedRead], PreTotalReqs[ZoneFilePositionedRead], PreTotalLatency[ZoneFilePositionedRead]);
+	fprintf(latency_log_file, "                                                         [ZoneFile::PositionedRead()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneFilePositionedRead], PreCount[ZoneFilePositionedRead], PreLatency[ZoneFilePositionedRead]);
 	fprintf(latency_log_file, "                                                                         |\n");
 	fprintf(latency_log_file, "                _________________________________________________________|___________________________________________________________\n");
 	fprintf(latency_log_file, "                |                                                        |                                                          |\n");
 	fprintf(latency_log_file, "                |                                                        |                                                          |\n");
-	fprintf(latency_log_file, "        <a:%3ld,c:%6ld,t:%6ld>                                  <a:%3ld,c:%6ld,t:%6ld>                                    <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneSeqPositionedReadZoneFilePositionedRead], PreTotalReqs[ZoneSeqPositionedReadZoneFilePositionedRead], PreTotalLatency[ZoneSeqPositionedReadZoneFilePositionedRead],
-			PreAvgLatency[ZoneSeqPositionedReadZoneFilePositionedRead], PreTotalReqs[ZoneSeqPositionedReadZoneFilePositionedRead], PreTotalLatency[ZoneSeqPositionedReadZoneFilePositionedRead],
-			PreAvgLatency[ZoneRandomReadZoneFilePositionedRead], PreTotalReqs[ZoneRandomReadZoneFilePositionedRead], PreTotalLatency[ZoneRandomReadZoneFilePositionedRead]);
+	fprintf(latency_log_file, "        <a:%3ld,c:%6ld,t:%6ld>                                  <a:%3ld,c:%6ld,t:%6ld>                                    <a:%3ld,c:%6ld,t:%6ld>\n", PreAvgLatency[ZoneSeqPositionedReadZoneFilePositionedRead], PreCount[ZoneSeqPositionedReadZoneFilePositionedRead], PreLatency[ZoneSeqPositionedReadZoneFilePositionedRead],
+			PreAvgLatency[ZoneSeqPositionedReadZoneFilePositionedRead], PreCount[ZoneSeqPositionedReadZoneFilePositionedRead], PreLatency[ZoneSeqPositionedReadZoneFilePositionedRead],
+			PreAvgLatency[ZoneRandomReadZoneFilePositionedRead], PreCount[ZoneRandomReadZoneFilePositionedRead], PreLatency[ZoneRandomReadZoneFilePositionedRead]);
 	fprintf(latency_log_file, "                |                                                        |                                                          |\n");
-	fprintf(latency_log_file, "[ZonedSequentialFile::Read()<a:%3ld,c:%6ld,t:%6ld>]  [ZonedSequentialFile::PositionedRead()<a:%3ld,c:%6ld,t:%6ld>]   [ZonedRandomAccessFile::Read()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneSeqRead], PreTotalReqs[ZoneSeqRead], PreTotalLatency[ZoneSeqRead],
-			PreAvgLatency[ZoneSeqPositionedRead], PreTotalReqs[ZoneSeqPositionedRead], PreTotalLatency[ZoneSeqPositionedRead],
-			PreAvgLatency[ZoneRandomRead], PreTotalReqs[ZoneRandomRead], PreTotalLatency[ZoneRandomRead]);
+	fprintf(latency_log_file, "[ZonedSequentialFile::Read()<a:%3ld,c:%6ld,t:%6ld>]  [ZonedSequentialFile::PositionedRead()<a:%3ld,c:%6ld,t:%6ld>]   [ZonedRandomAccessFile::Read()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneSeqRead], PreCount[ZoneSeqRead], PreLatency[ZoneSeqRead],
+			PreAvgLatency[ZoneSeqPositionedRead], PreCount[ZoneSeqPositionedRead], PreLatency[ZoneSeqPositionedRead],
+			PreAvgLatency[ZoneRandomRead], PreCount[ZoneRandomRead], PreLatency[ZoneRandomRead]);
 	fprintf(latency_log_file, "read******************************************************************************************************************************\n");
 }
 
@@ -201,6 +209,8 @@ static void ZenfsShowLatency()
 		PreTotalLatency[i] = total_latency;
 		PreMaxLatency[i] = max_latency;
 		PreAvgLatency[i] = average_latency;
+		PreCount[i] = reqs;
+		PreLatency[i] = latency;
 
 		for (int j = 0; j < LATENCY_STAT_US_LEN; j++) {
 			LatencyStatUsTmp[i][j] = LatencyStatUs[i][j].fetch_and(0);
