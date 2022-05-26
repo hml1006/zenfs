@@ -144,7 +144,7 @@ static time_t second = 0;
 
 static void ShowCallTrace()
 {
-	fprintf(latency_log_file, "write******************************************************************************************************************************\n");
+	fprintf(latency_log_file, "\nwrite******************************************************************************************************************************\n");
 	fprintf(latency_log_file, "                                                  [pwrite<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[SystemPwrite], PreCount[SystemPwrite], PreLatency[SystemPwrite]);
 	fprintf(latency_log_file, "                                                            |\n                                                            |\n");
 	fprintf(latency_log_file, "                                               [Zone::Append()<a:%3ld,c:%6ld,t:%6ld>]\n", PreAvgLatency[ZoneAppend], PreCount[ZoneAppend], PreLatency[ZoneAppend]);
