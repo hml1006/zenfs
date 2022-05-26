@@ -25,6 +25,7 @@ enum LatencyTargetIndex {
 	ZoneFileSparseAppend,
 	ZoneFileBufferedAppend,
 	ZoneFilePositionedRead,
+	ZoneAppend,
 	SystemPread,
 	SystemPwrite,
 

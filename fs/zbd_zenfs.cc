@@ -140,6 +140,9 @@ IOStatus Zone::Append(char *data, uint32_t size) {
   ZenFSMetricsLatencyGuard guard(zbd_->GetMetrics(), ZENFS_ZONE_WRITE_LATENCY,
                                  Env::Default());
   zbd_->GetMetrics()->ReportThroughput(ZENFS_ZONE_WRITE_THROUGHPUT, size);
+
+  DEBUG_STEP_LATENCY_START(ZoneAppend);
+
   char *ptr = data;
   uint32_t left = size;
   int fd = zbd_->GetWriteFD();
@@ -165,6 +168,7 @@ IOStatus Zone::Append(char *data, uint32_t size) {
     capacity_ -= ret;
     left -= ret;
   }
+  DEBUG_STEP_LATENCY_END(ZoneAppend);
   return IOStatus::OK();
 }
 
