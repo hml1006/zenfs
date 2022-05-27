@@ -65,7 +65,9 @@ extern std::atomic<uint64_t> TotalLatency[TargetEnd];
 #define US_LATENCY_STEP 16
 #define LATENCY_STAT_US_LEN (1024 / US_LATENCY_STEP)
 #define LATENCY_STAT_MS_LEN 100
-// us latency, 10 us an item
+// latency less than 16 us
+extern std::atomic<uint64_t> LatencyStatLess16Us[TargetEnd][US_LATENCY_STEP];
+// us latency
 extern std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_US_LEN];
 // ms latency, 1 ms an item
 extern std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_MS_LEN];
@@ -109,7 +111,9 @@ extern void RecordThreadId();
 		if ((uint64_t)us > MaxLatency[targetId]) { \
 			MaxLatency[targetId] = us; \
 		} \
-		if (likely(us < 1000)) { \
+		if (us < 16) { \
+			LatencyStatLess16Us[targetId][us]++; \
+		} else if (likely(us < 1000)) { \
 			LatencyStatUs[targetId][us / US_LATENCY_STEP]++; \
 		} else if (us < LATENCY_STAT_MS_LEN * 1000) { \
 			LatencyStatMs[targetId][us / 1000]++; \

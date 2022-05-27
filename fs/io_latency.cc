@@ -19,11 +19,14 @@ std::atomic<uint64_t> TotalLatency[TargetEnd] = {};
 // max latency
 std::atomic<uint64_t> MaxLatency[TargetEnd] = {};
 
-// us latency, 10 us an item
+// latency less than 16 us
+std::atomic<uint64_t> LatencyStatLess16Us[TargetEnd][US_LATENCY_STEP];
+// us latency
 std::atomic<uint64_t> LatencyStatUs[TargetEnd][LATENCY_STAT_US_LEN] = {};
 // ms latency, 1 ms an item
 std::atomic<uint64_t> LatencyStatMs[TargetEnd][LATENCY_STAT_MS_LEN] = {};
 std::atomic<uint64_t> LatencyStat100Ms[TargetEnd] = {};
+uint64_t LatencyStatLess16UsTmp[TargetEnd][US_LATENCY_STEP] = {};
 uint64_t LatencyStatUsTmp[TargetEnd][LATENCY_STAT_US_LEN] = {};
 uint64_t LatencyStatMsTmp[TargetEnd][LATENCY_STAT_MS_LEN] = {};
 std::atomic<int> PWriteDataLen[PWRITE_DATA_ARR_LEN] = {};
@@ -213,6 +216,9 @@ static void ZenfsShowLatency()
 		PreCount[i] = reqs;
 		PreLatency[i] = latency;
 
+		for (int j = 0; j < US_LATENCY_STEP; j++) {
+			LatencyStatLess16UsTmp[i][j] = LatencyStatLess16Us[i][j].fetch_and(0);
+		}
 		for (int j = 0; j < LATENCY_STAT_US_LEN; j++) {
 			LatencyStatUsTmp[i][j] = LatencyStatUs[i][j].fetch_and(0);
 		}
@@ -226,6 +232,11 @@ static void ZenfsShowLatency()
 					ZenfsGetLatencyTargetName((LatencyTargetIndex)i), max_latency, average_latency, reqs, latency);
 			fprintf(latency_log_file, "**************************************************************************\n");
 			fprintf(latency_log_file, "latency\t\tcount\n");
+			for (int j = 0; j < US_LATENCY_STEP; j++) {
+				if (LatencyStatLess16UsTmp[i][j]) {
+					fprintf(latency_log_file, "%d  us\t\t%lu\n", j, LatencyStatLess16UsTmp[i][j]);
+				}
+			}
 			for (int j = 0; j < LATENCY_STAT_US_LEN; j++) {
 				if (LatencyStatUsTmp[i][j]) {
 					fprintf(latency_log_file, "%d-%d us\t\t%lu\n", j * US_LATENCY_STEP, (j + 1) * US_LATENCY_STEP, LatencyStatUsTmp[i][j]);
