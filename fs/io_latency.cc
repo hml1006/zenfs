@@ -12,6 +12,11 @@
 #include <thread>
 #include <unistd.h>
 
+#ifndef gettid
+#include <sys/syscall.h>
+#define gettid() (long int)syscall(__NR_gettid)
+#endif
+
 // total calls
 std::atomic<uint64_t> TotalReqs[TargetEnd] = {};
 // total latency
