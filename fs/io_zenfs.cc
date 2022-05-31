@@ -769,6 +769,8 @@ void ZoneFile::SetActiveZone(Zone* zone) {
   active_zone_ = zone;
 }
 
+// thread local write buffer
+static thread_local std::map<ZoneFile*, std::shared_ptr<ZonedWriteBuffer>> threadBuffer_;
 ZonedWritableFile::ZonedWritableFile(ZonedBlockDevice* zbd, bool _buffered,
                                      std::shared_ptr<ZoneFile> zoneFile,
                                      MetadataWriter* metadata_writer) {
@@ -796,13 +798,6 @@ ZonedWritableFile::ZonedWritableFile(ZonedBlockDevice* zbd, bool _buffered,
 
       buffer_sz = sparse_buffer_sz - ZoneFile::SPARSE_HEADER_SIZE - block_sz;
       buffer = sparse_buffer + ZoneFile::SPARSE_HEADER_SIZE;
-    } else {
-      buffer_sz = 1024 * 1024;
-      int ret =
-          posix_memalign((void**)&buffer, sysconf(_SC_PAGESIZE), buffer_sz);
-
-      if (ret) buffer = nullptr;
-      assert(buffer != nullptr);
     }
   }
 
@@ -908,6 +903,13 @@ IOStatus ZonedWritableFile::CloseInternal() {
   }
 
   IOStatus s = DataSync();
+
+  usleep(1000);
+  for (auto it = buffer_.begin(); it != buffer_.end(); it++) {
+	  auto thread_buffer = it->second.get();
+	  zoneFile_->BufferedAppend(thread_buffer->GetBufferPtr(), thread_buffer->GetDataLen());
+	  thread_buffer->Reset();
+  }
   if (!s.ok()) return s;
 
   return zoneFile_->CloseWR();
@@ -917,25 +919,60 @@ IOStatus ZonedWritableFile::FlushBuffer() {
   DEBUG_STEP_LATENCY_START(ZoneWritableFlushBuffer);
   IOStatus s;
 
-  if (buffer_pos == 0) return IOStatus::OK();
-
   if (zoneFile_->IsSparse()) {
+	if (buffer_pos == 0) return IOStatus::OK();
 	DEBUG_STEP_LATENCY_START(ZoneWritableFlushBufferZoneFileSparseAppend);
     s = zoneFile_->SparseAppend(sparse_buffer, buffer_pos);
     DEBUG_STEP_LATENCY_END(ZoneWritableFlushBufferZoneFileSparseAppend);
+
+    wp += buffer_pos;
+    buffer_pos = 0;
   } else {
-	DEBUG_STEP_LATENCY_START(ZoneWritableFlushBufferZoneFileBufferdAppend);
-    s = zoneFile_->BufferedAppend(buffer, buffer_pos);
-    DEBUG_STEP_LATENCY_END(ZoneWritableFlushBufferZoneFileBufferdAppend);
+	auto buffer_it = threadBuffer_.find(zoneFile_.get());
+	if (buffer_it != threadBuffer_.end()) {
+		ZonedWriteBuffer* thread_buffer = buffer_it->second.get();
+		DEBUG_STEP_LATENCY_START(ZoneWritableFlushBufferZoneFileBufferdAppend);
+		s = zoneFile_->BufferedAppend(thread_buffer->GetBufferPtr(), thread_buffer->GetDataLen());
+		DEBUG_STEP_LATENCY_END(ZoneWritableFlushBufferZoneFileBufferdAppend);
+		wp += thread_buffer->GetDataLen();
+		thread_buffer->Reset();
+	}
   }
 
   if (!s.ok()) {
     return s;
   }
 
-  wp += buffer_pos;
-  buffer_pos = 0;
   DEBUG_STEP_LATENCY_END(ZoneWritableFlushBuffer);
+  return IOStatus::OK();
+}
+
+IOStatus ZonedWritableFile::SparseBufferedWrite(const Slice& slice) {
+  uint32_t data_left = slice.size();
+  char* data = (char*)slice.data();
+  IOStatus s;
+
+  while (data_left) {
+    uint32_t buffer_left = buffer_sz - buffer_pos;
+    uint32_t to_buffer;
+
+    if (!buffer_left) {
+      s = FlushBuffer();
+      if (!s.ok()) return s;
+      buffer_left = buffer_sz;
+    }
+
+    to_buffer = data_left;
+    if (to_buffer > buffer_left) {
+      to_buffer = buffer_left;
+    }
+
+    memcpy(buffer + buffer_pos, data, to_buffer);
+    buffer_pos += to_buffer;
+    data_left -= to_buffer;
+    data += to_buffer;
+  }
+
   return IOStatus::OK();
 }
 
@@ -944,9 +981,19 @@ IOStatus ZonedWritableFile::BufferedWrite(const Slice& slice) {
   uint32_t data_left = slice.size();
   char* data = (char*)slice.data();
   IOStatus s;
+  std::shared_ptr<ZonedWriteBuffer> thread_buffer;
+
+  auto buffer_it = threadBuffer_.find(zoneFile_.get());
+  if (buffer_it == threadBuffer_.end()) {
+	  thread_buffer.reset(new ZonedWriteBuffer(ZONE_WRITE_BUFFER_LEN));
+	  threadBuffer_.insert({zoneFile_.get(), thread_buffer});
+	  AddThreadBuffer(gettid(), thread_buffer);
+  } else {
+	  thread_buffer = buffer_it->second;
+  }
 
   while (data_left) {
-    uint32_t buffer_left = buffer_sz - buffer_pos;
+    uint32_t buffer_left = thread_buffer->GetBufferLeft();
     uint32_t to_buffer;
 
     if (!buffer_left) {
@@ -962,8 +1009,8 @@ IOStatus ZonedWritableFile::BufferedWrite(const Slice& slice) {
       to_buffer = buffer_left;
     }
 
-    memcpy(buffer + buffer_pos, data, to_buffer);
-    buffer_pos += to_buffer;
+    thread_buffer->CopyData(data, to_buffer);
+
     data_left -= to_buffer;
     data += to_buffer;
   }
@@ -985,11 +1032,15 @@ IOStatus ZonedWritableFile::Append(const Slice& data,
                                                data.size());
   DEBUG_STEP_LATENCY_START(ZoneWritableAppend);
   if (buffered) {
-    buffer_mtx_.lock();
     DEBUG_STEP_LATENCY_START(ZoneWritableAppendBufferedWrite);
-    s = BufferedWrite(data);
+    if (zoneFile_->IsSparse()) {
+    	buffer_mtx_.lock();
+    	s = SparseBufferedWrite(data);
+    	buffer_mtx_.unlock();
+    } else {
+    	s = BufferedWrite(data);
+    }
     DEBUG_STEP_LATENCY_END(ZoneWritableAppendBufferedWrite);
-    buffer_mtx_.unlock();
   } else {
 	DEBUG_STEP_LATENCY_START(ZoneWritableAppendZoneFileAppend);
     s = zoneFile_->Append((void*)data.data(), data.size());
@@ -1019,11 +1070,15 @@ IOStatus ZonedWritableFile::PositionedAppend(const Slice& data, uint64_t offset,
   }
 
   if (buffered) {
-    buffer_mtx_.lock();
     DEBUG_STEP_LATENCY_START(ZoneWritablePositionedAppendBufferedWrite);
-    s = BufferedWrite(data);
+    if (zoneFile_->IsSparse()) {
+    	buffer_mtx_.lock();
+    	s = SparseBufferedWrite(data);
+    	buffer_mtx_.unlock();
+    } else {
+    	s = BufferedWrite(data);
+    }
     DEBUG_STEP_LATENCY_END(ZoneWritablePositionedAppendBufferedWrite);
-    buffer_mtx_.unlock();
   } else {
 	DEBUG_STEP_LATENCY_START(ZoneWritablePositionedAppendZoneFileAppend);
     s = zoneFile_->Append((void*)data.data(), data.size());

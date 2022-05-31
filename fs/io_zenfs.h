@@ -183,6 +183,62 @@ class ZoneFile {
   };
 };
 
+#define ZONE_WRITE_BUFFER_LEN (1024 * 1024)
+
+class ZonedWriteBuffer {
+public:
+  ZonedWriteBuffer(size_t len) {
+		this->buffer_sz = len;
+		int ret = posix_memalign((void**)&buffer, sysconf(_SC_PAGESIZE), buffer_sz);
+		err = ret;
+  }
+  ~ZonedWriteBuffer() {
+	free(buffer);
+  }
+
+  size_t GetBufferLeft() {
+	  return buffer_sz - buffer_pos;
+  }
+
+  char *GetBufferPtr() {
+	  return buffer;
+  }
+
+  size_t GetDataLen() {
+	  return buffer_pos;
+  }
+
+  size_t GetBufferLen() {
+	  return buffer_sz;
+  }
+
+  size_t CopyData(char *data, size_t data_len) {
+  	size_t buffer_left = buffer_sz - buffer_pos;
+  	if (buffer_left > data_len) {
+  		memcpy(buffer + buffer_pos, data, data_len);
+  		buffer_pos += data_len;
+  		return data_len;
+  	} else {
+  		memcpy(buffer + buffer_pos, data, buffer_left);
+  		buffer_pos = buffer_sz;
+  		return buffer_left;
+  	}
+  }
+
+  bool IsFull() {
+  	return buffer_pos == buffer_sz;
+  }
+
+  void Reset() {
+	  buffer_pos = 0;
+  }
+private:
+  char* buffer {nullptr};
+  size_t buffer_sz {0};
+  uint32_t buffer_pos {0};
+  int err {0};
+};
+
 class ZonedWritableFile : public FSWritableFile {
  public:
   explicit ZonedWritableFile(ZonedBlockDevice* zbd, bool buffered,
@@ -230,7 +286,15 @@ class ZonedWritableFile : public FSWritableFile {
   }
 
  private:
+  void AddThreadBuffer(pid_t tid, std::shared_ptr<ZonedWriteBuffer> thread_buffer) {
+	buffer_mtx_.lock();
+	buffer_.insert({tid, thread_buffer});
+	buffer_mtx_.unlock();
+  }
+
+ private:
   IOStatus BufferedWrite(const Slice& data);
+  IOStatus SparseBufferedWrite(const Slice& data);
   IOStatus FlushBuffer();
   IOStatus DataSync();
   IOStatus CloseInternal();
@@ -239,8 +303,8 @@ class ZonedWritableFile : public FSWritableFile {
   char* sparse_buffer;
   char* buffer;
   size_t buffer_sz;
-  uint32_t block_sz;
   uint32_t buffer_pos;
+  uint32_t block_sz;
   uint64_t wp;
   int write_temp;
 
@@ -248,6 +312,7 @@ class ZonedWritableFile : public FSWritableFile {
   MetadataWriter* metadata_writer_;
 
   std::mutex buffer_mtx_;
+  std::map<pid_t, std::shared_ptr<ZonedWriteBuffer>> buffer_;
 };
 
 class ZonedSequentialFile : public FSSequentialFile {
