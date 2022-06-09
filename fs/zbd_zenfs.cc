@@ -7,6 +7,7 @@
 #if !defined(ROCKSDB_LITE) && !defined(OS_WIN)
 
 #include "zbd_zenfs.h"
+#include "io_latency.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -139,28 +140,35 @@ IOStatus Zone::Append(char *data, uint32_t size) {
   ZenFSMetricsLatencyGuard guard(zbd_->GetMetrics(), ZENFS_ZONE_WRITE_LATENCY,
                                  Env::Default());
   zbd_->GetMetrics()->ReportThroughput(ZENFS_ZONE_WRITE_THROUGHPUT, size);
+
+  DEBUG_STEP_LATENCY_START(ZoneAppend);
+
   char *ptr = data;
   uint32_t left = size;
   int fd = zbd_->GetWriteFD();
   int ret;
 
+  RecordThreadId();
+
   if (capacity_ < size)
     return IOStatus::NoSpace("Not enough capacity for append");
 
   assert((size % zbd_->GetBlockSize()) == 0);
-
   while (left) {
+    DEBUG_STEP_LATENCY_START(SystemPwrite);
     ret = pwrite(fd, ptr, left, wp_);
+    DEBUG_STEP_LATENCY_END(SystemPwrite);
     if (ret < 0) {
       return IOStatus::IOError(strerror(errno));
     }
+    PWRITE_LEN_STAT(ret);
 
     ptr += ret;
     wp_ += ret;
     capacity_ -= ret;
     left -= ret;
   }
-
+  DEBUG_STEP_LATENCY_END(ZoneAppend);
   return IOStatus::OK();
 }
 
