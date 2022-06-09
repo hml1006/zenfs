@@ -279,7 +279,7 @@ static void ZenfsShowLatency()
 void LoopShowLatency()
 {
 	for(;;) {
-		sleep(1);
+		sleep(TIME_STEP);
 		second = time(NULL);
 		ZenfsShowLatency();
 		ShowCallTrace();
