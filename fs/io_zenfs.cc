@@ -227,7 +227,8 @@ Status ZoneFile::MergeUpdate(std::shared_ptr<ZoneFile> update, bool replace) {
   return Status::OK();
 }
 
-ZoneFile::ZoneFile(ZonedBlockDevice* zbd, uint64_t file_id)
+ZoneFile::ZoneFile(ZonedBlockDevice* zbd, uint64_t file_id,
+                   MetadataWriter* metadata_writer)
     : zbd_(zbd),
       active_zone_(NULL),
       extent_start_(NO_EXTENT),
@@ -237,7 +238,8 @@ ZoneFile::ZoneFile(ZonedBlockDevice* zbd, uint64_t file_id)
       file_size_(0),
       file_id_(file_id),
       nr_synced_extents_(0),
-      m_time_(0) {}
+      m_time_(0),
+      metadata_writer_(metadata_writer) {}
 
 std::string ZoneFile::GetFilename() { return linkfiles_[0]; }
 time_t ZoneFile::GetFileModificationTime() { return m_time_; }
@@ -247,13 +249,7 @@ void ZoneFile::SetFileSize(uint64_t sz) { file_size_ = sz; }
 void ZoneFile::SetFileModificationTime(time_t mt) { m_time_ = mt; }
 void ZoneFile::SetIOType(IOType io_type) { io_type_ = io_type; }
 
-ZoneFile::~ZoneFile() {
-  ClearExtents();
-  IOStatus s = CloseWR();
-  if (!s.ok()) {
-    zbd_->SetZoneDeferredStatus(s);
-  }
-}
+ZoneFile::~ZoneFile() { ClearExtents(); }
 
 void ZoneFile::ClearExtents() {
   for (auto e = std::begin(extents_); e != std::end(extents_); ++e) {
@@ -264,19 +260,6 @@ void ZoneFile::ClearExtents() {
     delete *e;
   }
   extents_.clear();
-}
-
-IOStatus ZoneFile::CloseWR() {
-  IOStatus s;
-  if (open_for_wr_) {
-    /* Mark up the file as being closed */
-    extent_start_ = NO_EXTENT;
-    s = PersistMetadata();
-    if (!s.ok()) return s;
-    open_for_wr_ = false;
-    s = CloseActiveZone();
-  }
-  return s;
 }
 
 IOStatus ZoneFile::CloseActiveZone() {
@@ -296,12 +279,34 @@ IOStatus ZoneFile::CloseActiveZone() {
   return s;
 }
 
-void ZoneFile::OpenWR(MetadataWriter* metadata_writer) {
+void ZoneFile::AcquireWRLock() {
+  open_for_wr_mtx_.lock();
   open_for_wr_ = true;
-  metadata_writer_ = metadata_writer;
+}
+
+bool ZoneFile::TryAcquireWRLock() {
+  if (!open_for_wr_mtx_.try_lock()) return false;
+  open_for_wr_ = true;
+  return true;
+}
+
+void ZoneFile::ReleaseWRLock() {
+  assert(open_for_wr_);
+  open_for_wr_ = false;
+  open_for_wr_mtx_.unlock();
 }
 
 bool ZoneFile::IsOpenForWR() { return open_for_wr_; }
+
+IOStatus ZoneFile::CloseWR() {
+  IOStatus s;
+  /* Mark up the file as being closed */
+  extent_start_ = NO_EXTENT;
+  s = PersistMetadata();
+  if (!s.ok()) return s;
+  ReleaseWRLock();
+  return CloseActiveZone();
+}
 
 IOStatus ZoneFile::PersistMetadata() {
   assert(metadata_writer_ != NULL);
@@ -760,8 +765,8 @@ void ZoneFile::SetActiveZone(Zone* zone) {
 }
 
 ZonedWritableFile::ZonedWritableFile(ZonedBlockDevice* zbd, bool _buffered,
-                                     std::shared_ptr<ZoneFile> zoneFile,
-                                     MetadataWriter* metadata_writer) {
+                                     std::shared_ptr<ZoneFile> zoneFile) {
+  assert(zoneFile->IsOpenForWR());
   wp = zoneFile->GetFileSize();
 
   buffered = _buffered;
@@ -796,7 +801,7 @@ ZonedWritableFile::ZonedWritableFile(ZonedBlockDevice* zbd, bool _buffered,
     }
   }
 
-  zoneFile_->OpenWR(metadata_writer);
+  open = true;
 }
 
 ZonedWritableFile::~ZonedWritableFile() {
@@ -890,14 +895,18 @@ IOStatus ZonedWritableFile::Close(const IOOptions& /*options*/,
 }
 
 IOStatus ZonedWritableFile::CloseInternal() {
-  if (!zoneFile_->IsOpenForWR()) {
+  if (!open) {
     return IOStatus::OK();
   }
 
   IOStatus s = DataSync();
   if (!s.ok()) return s;
 
-  return zoneFile_->CloseWR();
+  s = zoneFile_->CloseWR();
+  if (!s.ok()) return s;
+
+  open = false;
+  return s;
 }
 
 IOStatus ZonedWritableFile::FlushBuffer() {

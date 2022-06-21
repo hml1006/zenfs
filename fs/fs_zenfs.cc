@@ -503,9 +503,6 @@ IOStatus ZenFS::DeleteFileNoLock(std::string fname, const IOOptions& options,
   if (zoneFile != nullptr) {
     std::string record;
 
-    if (zoneFile->IsOpenForWR())
-      return IOStatus::Busy("ZenFS::DeleteFileNoLock(): file open for writing:",
-                            fname.c_str());
     files_.erase(fname);
     s = zoneFile->RemoveLinkName(fname);
     if (!s.ok()) return s;
@@ -773,8 +770,9 @@ IOStatus ZenFS::OpenWritableFile(const std::string& filename,
 
     /* if reopen is true and the file exists, return it */
     if (reopen && zoneFile != nullptr) {
-      result->reset(new ZonedWritableFile(zbd_, !file_opts.use_direct_writes,
-                                          zoneFile, &metadata_writer_));
+      zoneFile->AcquireWRLock();
+      result->reset(
+          new ZonedWritableFile(zbd_, !file_opts.use_direct_writes, zoneFile));
       return IOStatus::OK();
     }
 
@@ -784,7 +782,8 @@ IOStatus ZenFS::OpenWritableFile(const std::string& filename,
       resetIOZones = true;
     }
 
-    zoneFile = std::make_shared<ZoneFile>(zbd_, next_file_id_++);
+    zoneFile =
+        std::make_shared<ZoneFile>(zbd_, next_file_id_++, &metadata_writer_);
     zoneFile->SetFileModificationTime(time(0));
     zoneFile->AddLinkName(fname);
 
@@ -803,9 +802,10 @@ IOStatus ZenFS::OpenWritableFile(const std::string& filename,
       return s;
     }
 
+    zoneFile->AcquireWRLock();
     files_.insert(std::make_pair(fname.c_str(), zoneFile));
-    result->reset(new ZonedWritableFile(zbd_, !file_opts.use_direct_writes,
-                                        zoneFile, &metadata_writer_));
+    result->reset(
+        new ZonedWritableFile(zbd_, !file_opts.use_direct_writes, zoneFile));
   }
 
   if (resetIOZones) s = zbd_->ResetUnusedIOZones();
@@ -1101,7 +1101,7 @@ void ZenFS::EncodeJson(std::ostream& json_stream) {
 }
 
 Status ZenFS::DecodeFileUpdateFrom(Slice* slice, bool replace) {
-  std::shared_ptr<ZoneFile> update(new ZoneFile(zbd_, 0));
+  std::shared_ptr<ZoneFile> update(new ZoneFile(zbd_, 0, &metadata_writer_));
   uint64_t id;
   Status s;
 
@@ -1147,7 +1147,8 @@ Status ZenFS::DecodeSnapshotFrom(Slice* input) {
   assert(files_.size() == 0);
 
   while (GetLengthPrefixedSlice(input, &slice)) {
-    std::shared_ptr<ZoneFile> zoneFile(new ZoneFile(zbd_, 0));
+    std::shared_ptr<ZoneFile> zoneFile(
+        new ZoneFile(zbd_, 0, &metadata_writer_));
     Status s = zoneFile->DecodeFrom(&slice);
     if (!s.ok()) return s;
 
@@ -1620,12 +1621,18 @@ void ZenFS::GetZenFSSnapshot(ZenFSSnapshot& snapshot,
     std::lock_guard<std::mutex> file_lock(files_mtx_);
     for (const auto& file_it : files_) {
       ZoneFile& file = *(file_it.second);
+
+      /* Skip files open for writing, as extents are being updated */
+      if (!file.TryAcquireWRLock()) continue;
+
       // file -> extents mapping
       snapshot.zone_files_.emplace_back(file);
       // extent -> file mapping
       for (auto* ext : file.GetExtents()) {
         snapshot.extents_.emplace_back(*ext, file.GetFilename());
       }
+
+      file.ReleaseWRLock();
     }
   }
 
@@ -1669,7 +1676,13 @@ IOStatus ZenFS::MigrateFileExtents(
 
   // The file may be deleted by other threads, better double check.
   auto zfile = GetFile(fname);
-  if (zfile == nullptr || zfile->IsOpenForWR()) {
+  if (zfile == nullptr) {
+    return IOStatus::OK();
+  }
+
+  // Don't migrate open for write files and prevent write reopens while we
+  // migrate
+  if (!zfile->TryAcquireWRLock()) {
     return IOStatus::OK();
   }
 
@@ -1717,8 +1730,10 @@ IOStatus ZenFS::MigrateFileExtents(
       zfile->MigrateData(ext->start_ - ZoneFile::SPARSE_HEADER_SIZE,
                          ext->length_ + ZoneFile::SPARSE_HEADER_SIZE,
                          target_zone);
+      zbd_->AddGCBytesWritten(ext->length_ + ZoneFile::SPARSE_HEADER_SIZE);
     } else {
       zfile->MigrateData(ext->start_, ext->length_, target_zone);
+      zbd_->AddGCBytesWritten(ext->length_);
     }
 
     // If the file doesn't exist, skip
@@ -1736,6 +1751,7 @@ IOStatus ZenFS::MigrateFileExtents(
   }
 
   SyncFileExtents(zfile.get(), new_extent_list);
+  zfile->ReleaseWRLock();
 
   Info(logger_, "MigrateFileExtents Finished, fname: %s, extent count: %lu",
        fname.data(), migrate_exts.size());
